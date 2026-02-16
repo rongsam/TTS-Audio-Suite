@@ -28,23 +28,53 @@ _audio_editor_node = None
 # Global settings for inline edit tags (set from ComfyUI settings menu)
 _inline_tag_settings = {
     "precision": "auto",
-    "device": "auto"
+    "device": "auto",
+    "vc_engine": "chatterbox_23lang",  # Default VC engine for <restore> tags
+    "cosyvoice_variant": "RL"  # CosyVoice model variant: "RL" or "standard"
 }
 
+# Settings cache file to persist across module reloads
+import os
+import json
+_settings_cache_file = os.path.join(os.path.dirname(__file__), ".inline_tag_settings_cache.json")
 
-def set_inline_tag_settings(precision: str = "auto", device: str = "auto"):
+# Load settings from cache on module import
+try:
+    if os.path.exists(_settings_cache_file):
+        with open(_settings_cache_file, 'r') as f:
+            cached_settings = json.load(f)
+            _inline_tag_settings.update(cached_settings)
+except Exception:
+    pass
+
+
+def set_inline_tag_settings(precision: str = "auto", device: str = "auto", vc_engine: str = "chatterbox_23lang", cosyvoice_variant: str = "RL"):
     """
-    Set global settings for inline edit tag processing.
+    Set global settings for inline edit tag processing and voice restoration.
     Called from the API endpoint when user changes settings in ComfyUI menu.
 
     Args:
         precision: Model precision (auto, fp32, fp16, bf16, int8, int4)
         device: Device (auto, cuda, cpu, xpu)
+        vc_engine: Voice conversion engine for <restore> tags (chatterbox_23lang, chatterbox, cosyvoice)
+        cosyvoice_variant: CosyVoice model variant (RL, standard) - only used when vc_engine is cosyvoice
     """
     global _inline_tag_settings
     _inline_tag_settings["precision"] = precision
     _inline_tag_settings["device"] = device
+    _inline_tag_settings["vc_engine"] = vc_engine
+    _inline_tag_settings["cosyvoice_variant"] = cosyvoice_variant
     print(f"🎨 Step Audio EditX inline tags: precision={precision}, device={device}")
+    print(f"🔄 Voice restoration engine: {vc_engine}")
+    if vc_engine == "cosyvoice":
+        print(f"   CosyVoice variant: {cosyvoice_variant}")
+
+    # Save to cache file to persist across module reloads
+    try:
+        with open(_settings_cache_file, 'w') as f:
+            json.dump(_inline_tag_settings, f)
+    except Exception as e:
+        print(f"⚠️ Failed to save settings cache: {e}")
 
 
 def get_inline_tag_settings() -> Dict[str, str]:
@@ -194,21 +224,32 @@ def _apply_edit_via_node(
 # Global cache for Voice Changer node (lazy-loaded)
 _cached_vc_node = None
 
-def _restore_voice_via_vc(edited_audio_dict, original_voice_dict, iterations=1, language="English"):
+def _restore_voice_via_vc(edited_audio_dict, original_voice_dict, iterations=1, language="English", vc_engine=None):
     """
-    Apply ChatterBox Official 23-Lang Voice Changer to restore original voice.
+    Apply voice conversion to restore original voice.
     Reuses existing UnifiedVoiceChangerNode logic with its cache system.
+
+    Supports multiple VC engines:
+    - chatterbox_23lang: ChatterBox Official 23-Lang (default, 23 languages)
+    - chatterbox: ChatterBox Classic (English, German, Norwegian)
+    - cosyvoice: CosyVoice3 native VC (24kHz output, multilingual)
 
     Args:
         edited_audio_dict: Audio after edits {waveform, sample_rate}
         original_voice_dict: Original voice reference {waveform, sample_rate}
         iterations: Number of VC refinement passes (1-5)
         language: Language for VC model (e.g., "English", "Polish", etc.)
+        vc_engine: VC engine to use (defaults to global setting)
 
     Returns:
         dict: Restored audio {waveform, sample_rate}
     """
     global _cached_vc_node
+
+    # Get VC engine from settings if not specified
+    if vc_engine is None:
+        settings = get_inline_tag_settings()
+        vc_engine = settings.get("vc_engine", "chatterbox_23lang")
 
     # Lazy-load VC node instance (cache globally like Audio Editor)
     if _cached_vc_node is None:
@@ -234,14 +275,43 @@ def _restore_voice_via_vc(edited_audio_dict, original_voice_dict, iterations=1, 
         # Instantiate the VC node
         _cached_vc_node = vc_module.UnifiedVoiceChangerNode()
 
-    # Create engine config for ChatterBox 23-Lang VC
-    engine_config = {
-        'engine_type': 'chatterbox_official_23lang',
-        'config': {
-            'device': 'auto',
-            'language': language
+    # Create engine config based on selected VC engine
+    if vc_engine == "cosyvoice":
+        # Get CosyVoice variant from settings
+        settings = get_inline_tag_settings()
+        variant = settings.get("cosyvoice_variant", "RL")
+
+        # Map variant to model path
+        if variant == "RL":
+            model_path = "local:Fun-CosyVoice3-0.5B-RL"
+        else:
+            model_path = "local:Fun-CosyVoice3-0.5B"
+
+        engine_config = {
+            'engine_type': 'cosyvoice',
+            'config': {
+                'device': 'auto',
+                'mode': 'zero_shot',  # Use zero_shot for VC
+                'speed': 1.0,
+                'model_path': model_path
+            }
         }
-    }
+    elif vc_engine == "chatterbox":
+        engine_config = {
+            'engine_type': 'chatterbox',
+            'config': {
+                'device': 'auto',
+                'language': language
+            }
+        }
+    else:  # chatterbox_23lang (default)
+        engine_config = {
+            'engine_type': 'chatterbox_official_23lang',
+            'config': {
+                'device': 'auto',
+                'language': language
+            }
+        }
 
     # Call existing VC node logic with refinement passes
     result = _cached_vc_node.convert_voice(

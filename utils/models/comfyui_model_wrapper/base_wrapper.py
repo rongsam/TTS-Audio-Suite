@@ -132,7 +132,17 @@ class ComfyUIModelWrapper:
     def model_offloaded_memory(self) -> int:
         """Return the amount of memory that would be freed if offloaded"""
         return self.model_size() - self.loaded_size()
-    
+
+    def partially_unload_ram(self, ram_to_unload: int) -> int:
+        """
+        ComfyUI compatibility: partially unload RAM/VRAM.
+        Newer ComfyUI versions call this on loaded models.
+        """
+        try:
+            return self.partially_unload('cpu', ram_to_unload)
+        except Exception:
+            return 0
+
     def current_loaded_device(self) -> str:
         """Return the current device the model is loaded on"""
         return self.current_device
@@ -213,17 +223,33 @@ class ComfyUIModelWrapper:
                 print(f"⚠️ Could not use ensure_device() for clearing, proceeding with direct load: {e}")
 
         try:
-            # Move model back to GPU (comprehensive approach)
-            if hasattr(model, 'to'):
-                model.to(target_device)
-                print(f"🔄 Moved main {self.model_info.model_type} model ({self.model_info.engine}) to {target_device}")
+            # Check if engine handler has custom load logic
+            from .engine_handlers import get_engine_handler
+            handler = get_engine_handler(self.model_info.engine)
 
-            # CRITICAL: Recursively move ALL nested components to ensure device consistency
-            self._move_all_components_to_device(model, target_device, depth=0)
+            # Try engine-specific partial_load first (e.g., CosyVoice needs special handling)
+            if hasattr(handler, 'partially_load'):
+                success = handler.partially_load(self, str(target_device))
+                if success:
+                    self.current_device = target_device
+                    self._is_loaded_on_gpu = True
+                    # Skip the generic movement code below
+                else:
+                    print(f"⚠️ Engine handler partially_load failed, falling back to generic movement")
+                    # Fall through to generic movement
+            else:
+                # Generic movement for engines without custom partially_load
+                # Move model back to GPU (comprehensive approach)
+                if hasattr(model, 'to'):
+                    model.to(target_device)
+                    print(f"🔄 Moved main {self.model_info.model_type} model ({self.model_info.engine}) to {target_device}")
 
-            self.current_device = target_device
-            self._is_loaded_on_gpu = True
-            print(f"✅ Fully moved {self.model_info.model_type} model components ({self.model_info.engine}) back to {target_device}")
+                # CRITICAL: Recursively move ALL nested components to ensure device consistency
+                self._move_all_components_to_device(model, target_device, depth=0)
+
+                self.current_device = target_device
+                self._is_loaded_on_gpu = True
+                print(f"✅ Fully moved {self.model_info.model_type} model components ({self.model_info.engine}) back to {target_device}")
 
             # Re-register with ComfyUI after reload so "Clear VRAM" continues to work
             try:
@@ -292,6 +318,22 @@ class ComfyUIModelWrapper:
                 except Exception:
                     pass
     
+    def is_dynamic(self) -> bool:
+        """
+        ComfyUI 0.12.0+ compatibility method.
+        
+        Dynamic models can have their memory requirements change during inference
+        (e.g., models using dynamic batching or variable sequence lengths).
+        TTS models have fixed memory requirements, so we return False.
+        
+        This prevents AttributeError when ComfyUI's model_management.py calls
+        is_dynamic() on loaded models in free_memory() and load_models_gpu_orig().
+        
+        Returns:
+            False - TTS models are not dynamic
+        """
+        return False
+
     def is_clone(self, other) -> bool:
         """Check if this model is a clone of another model"""
         if not isinstance(other, ComfyUIModelWrapper):
@@ -324,10 +366,8 @@ class ComfyUIModelWrapper:
 
         if is_higgs:
             self._is_valid_for_reuse = False
-            print(f"🚫 Marked {original_engine} model as invalid for reuse (CUDA graphs corrupted by CPU migration)")
-
-            # CRITICAL: Clear node-level engine caches to prevent reuse of corrupted engines
-            # This is essential because TTS nodes have their own caching separate from ComfyUI wrapper cache
+            # Clear node-level engine caches to force fresh CUDA graph initialization
+            # CUDA graphs are device-specific and must be recreated after CPU migration
             invalidate_all_caches()
         else:
             # Other engines (ChatterBox, F5-TTS, VibeVoice) can be safely reused after device movement

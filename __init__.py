@@ -8,17 +8,28 @@ Unified architecture supporting ChatterBox, F5-TTS, and future engines like RVC:
 • 🎭 Character Voices (voice reference management)
 """
 
+# Note: PYTORCH_ALLOC_CONF should be set in ComfyUI launch script if needed
+# Setting it here causes "allocator mismatch" errors because ComfyUI already imported torch
+
 # Import from the main nodes.py file which handles the new unified architecture
 import importlib.util
 import os
 import sys
 
-# CRITICAL: Apply compatibility patches BEFORE any other imports
-#
-# Timing is critical: The monkey-patches must be applied BEFORE libraries are imported
-# by any other module. If we wait until after other imports, they will already
-# be loaded and our monkey-patches won't affect the already-imported module references.
-#
+# Note: PyTorch inductor patches removed - not needed for PyTorch 2.10+ with triton-windows 3.6+
+# Qwen3-TTS torch.compile optimizations require:
+# - PyTorch 2.10.0+ with CUDA 13.0
+# - triton-windows 3.6.0+ (Windows) or triton 3.6.0+ (Linux)
+# See docs/qwen3_tts_optimizations.md for installation instructions
+
+# Enable TensorFloat32 for better performance on Ampere+ GPUs (RTX 30xx+)
+try:
+    import torch
+    if torch.cuda.is_available():
+        torch.set_float32_matmul_precision('high')
+except Exception:
+    pass
+
 # PyTorch patches solve TWO PyTorch 2.9 issues:
 # 1. TorchCodec DLL incompatibility on Windows - Global patch uses scipy instead
 # 2. PyTorch 2.9's changed torchaudio.load() returning raw int16 - safe_load_audio() normalizes
@@ -123,6 +134,23 @@ def print_critical_versions():
 
     print(f"ℹ️ Critical package versions: {', '.join(version_info)}")
 
+def warn_transformers_5_unsupported():
+    """Warn when Transformers 5.x is installed (Qwen3-TTS tokenizer is incompatible)."""
+    try:
+        import transformers
+        try:
+            from packaging.version import Version
+            version = Version(transformers.__version__)
+            is_5x = version >= Version("5.0.0")
+        except Exception:
+            parts = transformers.__version__.split(".")
+            is_5x = int(parts[0]) >= 5 if parts and parts[0].isdigit() else False
+        if is_5x:
+            print("⚠️ Transformers 5.x detected: Qwen3-TTS tokenizer is incompatible.")
+            print("   Please downgrade to transformers<=4.57.3 (see requirements.txt).")
+    except Exception:
+        pass
+
 def check_ffmpeg_availability():
     """Check ffmpeg availability and log status"""
     try:
@@ -154,6 +182,7 @@ def check_ffmpeg_availability():
 
 # Print versions and check dependencies immediately for troubleshooting
 print_critical_versions()
+warn_transformers_5_unsupported()
 check_ffmpeg_availability()
 
 # Check for old ChatterBox extension conflict
@@ -305,25 +334,34 @@ def setup_api_routes():
 
         @PromptServer.instance.routes.post("/api/tts-audio-suite/settings")
         async def set_inline_tag_settings_endpoint(request):
-            """API endpoint to receive settings from frontend for inline edit tags"""
+            """API endpoint to receive settings from frontend for inline edit tags and restore VC"""
             print("🔧 Settings endpoint called")  # Immediate print to verify endpoint is reached
             try:
                 data = await request.json()
                 precision = data.get("precision", "auto")
                 device = data.get("device", "auto")
+                vc_engine = data.get("vc_engine", "chatterbox_23lang")
+                cosyvoice_variant = data.get("cosyvoice_variant", "RL")
 
-                print(f"🔧 Received settings: precision={precision}, device={device}")
+                print(f"🔧 Received settings: precision={precision}, device={device}, vc_engine={vc_engine}, cosyvoice_variant={cosyvoice_variant}")
 
-                # Load edit_post_processor directly by file path to avoid package import issues
-                edit_post_processor_path = os.path.join(os.path.dirname(__file__), "utils", "audio", "edit_post_processor.py")
-                spec = importlib.util.spec_from_file_location("edit_post_processor_module", edit_post_processor_path)
-                edit_post_processor_module = importlib.util.module_from_spec(spec)
-                spec.loader.exec_module(edit_post_processor_module)
+                # Import edit_post_processor using normal import to ensure we get the same module instance
+                # that will be used during workflow execution
+                # CRITICAL: Must use the same module instance, not create a new one via importlib!
+                try:
+                    from utils.audio import edit_post_processor as edit_post_processor_module
+                except ImportError:
+                    # Fallback: Load directly by file path if normal import fails
+                    edit_post_processor_path = os.path.join(os.path.dirname(__file__), "utils", "audio", "edit_post_processor.py")
+                    spec = importlib.util.spec_from_file_location("utils.audio.edit_post_processor", edit_post_processor_path)
+                    edit_post_processor_module = importlib.util.module_from_spec(spec)
+                    sys.modules["utils.audio.edit_post_processor"] = edit_post_processor_module  # Register in sys.modules!
+                    spec.loader.exec_module(edit_post_processor_module)
 
                 # Store in global settings that edit_post_processor can access
-                edit_post_processor_module.set_inline_tag_settings(precision=precision, device=device)
+                edit_post_processor_module.set_inline_tag_settings(precision=precision, device=device, vc_engine=vc_engine, cosyvoice_variant=cosyvoice_variant)
 
-                return web.json_response({"status": "success", "precision": precision, "device": device})
+                return web.json_response({"status": "success", "precision": precision, "device": device, "vc_engine": vc_engine, "cosyvoice_variant": cosyvoice_variant})
             except Exception as e:
                 print(f"⚠️ Error setting inline tag settings: {e}")
                 return web.json_response({"status": "error", "error": str(e)})

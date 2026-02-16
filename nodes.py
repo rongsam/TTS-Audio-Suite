@@ -11,7 +11,7 @@ except ImportError:
     pass
 
 # Version and constants
-VERSION = "4.16.13"
+VERSION = "4.21.2"
 IS_DEV = False  # Set to False for release builds
 VERSION_DISPLAY = f"v{VERSION}" + (" (dev)" if IS_DEV else "")
 SEPARATOR = "=" * 70
@@ -108,6 +108,14 @@ except Exception as e:
     VIBEVOICE_ENGINE_AVAILABLE = False
 
 try:
+    qwen3_tts_engine_module = load_node_module("qwen3_tts_engine_node", "engines/qwen3_tts_engine_node.py")
+    Qwen3TTSEngineNode = qwen3_tts_engine_module.Qwen3TTSEngineNode
+    QWEN3_TTS_ENGINE_AVAILABLE = True
+except Exception as e:
+    print(f"❌ Qwen3-TTS Engine failed: {e}")
+    QWEN3_TTS_ENGINE_AVAILABLE = False
+
+try:
     chatterbox_official_23lang_engine_module = load_node_module("chatterbox_official_23lang_engine_node", "engines/chatterbox_official_23lang_engine_node.py")
     ChatterBoxOfficial23LangEngineNode = chatterbox_official_23lang_engine_module.ChatterBoxOfficial23LangEngineNode
     CHATTERBOX_OFFICIAL_23LANG_ENGINE_AVAILABLE = True
@@ -158,6 +166,14 @@ except Exception as e:
     print(f"❌ Character Voices failed: {e}")
     CHARACTER_VOICES_AVAILABLE = False
 
+try:
+    refresh_voice_cache_module = load_node_module("refresh_voice_cache_node", "shared/refresh_voice_cache_node.py")
+    RefreshVoiceCacheNode = refresh_voice_cache_module.RefreshVoiceCacheNode
+    REFRESH_VOICE_CACHE_AVAILABLE = True
+except Exception as e:
+    print(f"❌ Refresh Voice Cache failed: {e}")
+    REFRESH_VOICE_CACHE_AVAILABLE = False
+
 # Load unified nodes
 try:
     unified_text_module = load_node_module("unified_tts_text_node", "unified/tts_text_node.py")
@@ -182,6 +198,22 @@ try:
 except Exception as e:
     print(f"❌ Unified Voice Changer failed: {e}")
     UNIFIED_VC_AVAILABLE = False
+
+try:
+    unified_asr_module = load_node_module("unified_asr_transcribe_node", "unified/asr_transcribe_node.py")
+    UnifiedASRTranscribeNode = unified_asr_module.UnifiedASRTranscribeNode
+    UNIFIED_ASR_AVAILABLE = True
+except Exception as e:
+    print(f"❌ Unified ASR Transcribe failed: {e}")
+    UNIFIED_ASR_AVAILABLE = False
+
+try:
+    asr_srt_options_module = load_node_module("asr_srt_options_node", "asr/asr_srt_options_node.py")
+    ASRSRTAdvancedOptionsNode = asr_srt_options_module.ASRSRTAdvancedOptionsNode
+    ASR_SRT_OPTIONS_AVAILABLE = True
+except Exception as e:
+    print(f"❌ ASR SRT Advanced Options failed: {e}")
+    ASR_SRT_OPTIONS_AVAILABLE = False
 
 # Load support nodes
 try:
@@ -234,6 +266,15 @@ try:
 except Exception as e:
     print(f"❌ Step Audio EditX Audio Editor failed: {e}")
     STEP_AUDIO_EDITX_EDITOR_AVAILABLE = False
+
+# Load Qwen3-TTS Voice Designer node
+try:
+    qwen3_tts_voice_designer_module = load_node_module("qwen3_tts_voice_designer_node", "qwen3_tts/qwen3_tts_voice_designer_node.py")
+    Qwen3TTSVoiceDesignerNode = qwen3_tts_voice_designer_module.Qwen3TTSVoiceDesignerNode
+    QWEN3_TTS_VOICE_DESIGNER_AVAILABLE = True
+except Exception as e:
+    print(f"❌ Qwen3-TTS Voice Designer failed: {e}")
+    QWEN3_TTS_VOICE_DESIGNER_AVAILABLE = False
 
 # Load RVC nodes
 try:
@@ -418,6 +459,14 @@ if VIBEVOICE_ENGINE_AVAILABLE:
     NODE_CLASS_MAPPINGS["VibeVoiceEngineNode"] = VibeVoiceEngineNode
     NODE_DISPLAY_NAME_MAPPINGS["VibeVoiceEngineNode"] = "⚙️ VibeVoice Engine"
 
+if QWEN3_TTS_ENGINE_AVAILABLE:
+    NODE_CLASS_MAPPINGS["Qwen3TTSEngineNode"] = Qwen3TTSEngineNode
+    NODE_DISPLAY_NAME_MAPPINGS["Qwen3TTSEngineNode"] = "⚙️ Qwen3-TTS Engine"
+
+if QWEN3_TTS_VOICE_DESIGNER_AVAILABLE:
+    NODE_CLASS_MAPPINGS["Qwen3TTSVoiceDesignerNode"] = Qwen3TTSVoiceDesignerNode
+    NODE_DISPLAY_NAME_MAPPINGS["Qwen3TTSVoiceDesignerNode"] = "🎨 Qwen3-TTS Voice Designer"
+
 if CHATTERBOX_OFFICIAL_23LANG_ENGINE_AVAILABLE:
     NODE_CLASS_MAPPINGS["ChatterBoxOfficial23LangEngineNode"] = ChatterBoxOfficial23LangEngineNode
     NODE_DISPLAY_NAME_MAPPINGS["ChatterBoxOfficial23LangEngineNode"] = "⚙️ ChatterBox Official 23-Lang Engine"
@@ -443,6 +492,8 @@ if CHARACTER_VOICES_AVAILABLE:
     NODE_CLASS_MAPPINGS["CharacterVoicesNode"] = CharacterVoicesNode
     NODE_DISPLAY_NAME_MAPPINGS["CharacterVoicesNode"] = "🎭 Character Voices"
 
+
+
 # Register unified nodes
 if UNIFIED_TEXT_AVAILABLE:
     NODE_CLASS_MAPPINGS["UnifiedTTSTextNode"] = UnifiedTTSTextNode
@@ -455,6 +506,14 @@ if UNIFIED_SRT_AVAILABLE:
 if UNIFIED_VC_AVAILABLE:
     NODE_CLASS_MAPPINGS["UnifiedVoiceChangerNode"] = UnifiedVoiceChangerNode
     NODE_DISPLAY_NAME_MAPPINGS["UnifiedVoiceChangerNode"] = "🔄 Voice Changer"
+
+if UNIFIED_ASR_AVAILABLE:
+    NODE_CLASS_MAPPINGS["UnifiedASRTranscribeNode"] = UnifiedASRTranscribeNode
+    NODE_DISPLAY_NAME_MAPPINGS["UnifiedASRTranscribeNode"] = "✏️ ASR Transcribe"
+
+if ASR_SRT_OPTIONS_AVAILABLE:
+    NODE_CLASS_MAPPINGS["ASRSRTAdvancedOptionsNode"] = ASRSRTAdvancedOptionsNode
+    NODE_DISPLAY_NAME_MAPPINGS["ASRSRTAdvancedOptionsNode"] = "🔧 ASR SRT Advanced Options"
 
 # Register legacy support nodes
 if VOICE_CAPTURE_AVAILABLE:
@@ -532,6 +591,10 @@ if STRING_MULTILINE_TAG_EDITOR_AVAILABLE:
     NODE_CLASS_MAPPINGS["StringMultilineTagEditor"] = StringMultilineTagEditor
     NODE_DISPLAY_NAME_MAPPINGS["StringMultilineTagEditor"] = "🏷️ Multiline TTS Tag Editor"
 
+if REFRESH_VOICE_CACHE_AVAILABLE:
+    NODE_CLASS_MAPPINGS["RefreshVoiceCacheNode"] = RefreshVoiceCacheNode
+    NODE_DISPLAY_NAME_MAPPINGS["RefreshVoiceCacheNode"] = "♻️ Refresh Voice Cache"
+
 # Register video analysis nodes
 if MOUTH_MOVEMENT_AVAILABLE:
     NODE_CLASS_MAPPINGS["MouthMovementAnalyzer"] = MouthMovementAnalyzerNode
@@ -587,7 +650,11 @@ if DEPENDENCY_CHECKER_AVAILABLE and AsyncDependencyChecker:
         pass  # Silently fail - background check is optional
 
 print(f"✅ TTS Audio Suite {VERSION_DISPLAY} loaded with {len(NODE_DISPLAY_NAME_MAPPINGS)} nodes:")
-for node in sorted(NODE_DISPLAY_NAME_MAPPINGS.values()):
+# Group engines first, then everything else
+nodes = sorted(NODE_DISPLAY_NAME_MAPPINGS.values())
+engines = [n for n in nodes if "⚙️" in n]
+others = [n for n in nodes if "⚙️" not in n]
+for node in engines + others:
     print(f"   • {node}")
 print(SEPARATOR)
 

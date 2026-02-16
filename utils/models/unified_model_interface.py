@@ -120,6 +120,22 @@ class UnifiedModelInterface:
         if force_reload:
             tts_model_manager.remove_model(cache_key)
 
+        # CRITICAL: For engines that support multiple model variants (like Qwen3-TTS),
+        # check if a DIFFERENT variant is already loaded and unload it to prevent device conflicts
+        # Only applies to engines where model variants are mutually exclusive
+        if config.engine_name == "qwen3_tts":
+            # Check for any cached qwen3_tts model
+            cached_keys = [k for k in tts_model_manager._model_cache.keys() if k.startswith("qwen3_tts_tts_")]
+            for existing_key in cached_keys:
+                if existing_key != cache_key:
+                    # Different model variant is loaded - unload it first
+                    print(f"🗑️ Unloading old qwen3_tts model variant to prevent VRAM accumulation")
+                    tts_model_manager.remove_model(existing_key)
+
+                    # CRITICAL: Invalidate processor caches so they reload engines
+                    from utils.models.comfyui_model_wrapper.cache_utils import invalidate_all_caches
+                    invalidate_all_caches()
+
         # Get existing model if cached
         wrapper = tts_model_manager.get_model(cache_key)
         if wrapper is not None:
@@ -747,7 +763,7 @@ def register_chatterbox_23lang_factory():
 
         # Extract parameters
         device = config.device or "auto"
-        model_name = config.model_name or "Official 23-Lang"  # Always same model
+        model_name = config.model_name or "ChatterBox Official 23-Lang"
         language = config.language or "english"  # This is the actual language to use
         model_version = config.additional_params.get("model_version", "v2") if config.additional_params else "v2"  # v1 or v2
 
@@ -755,11 +771,15 @@ def register_chatterbox_23lang_factory():
         if device == "auto":
             device = "cuda" if torch.cuda.is_available() else "cpu"
 
-        # Get model directory path
+        # Get model directory path - use model_name for the directory
+        # For "Vietnamese (Viterbox)", this will be "Vietnamese (Viterbox)"
+        # For "ChatterBox Official 23-Lang", this will be "ChatterBox Official 23-Lang"
         models_dir = folder_paths.models_dir
-        ckpt_dir = os.path.join(models_dir, "TTS", "chatterbox_official_23lang", "Official 23-Lang")
+        # Strip "ChatterBox " prefix for directory structure consistency
+        dir_name = model_name.replace("ChatterBox ", "") if model_name.startswith("ChatterBox ") else model_name
+        ckpt_dir = os.path.join(models_dir, "TTS", "chatterbox_official_23lang", dir_name)
 
-        print(f"🌍 Loading ChatterBox Official 23-Lang model for {language} on {device}")
+        print(f"🌍 Loading {model_name} model for {language} on {device}")
         print(f"📁 Using model directory: {ckpt_dir}")
 
         # Try local first, then use from_pretrained for auto-download if needed
@@ -768,10 +788,10 @@ def register_chatterbox_23lang_factory():
                 engine = ChatterboxOfficial23LangTTS.from_local(
                     ckpt_dir=ckpt_dir,
                     device=device,
-                    model_name="Official 23-Lang",
+                    model_name=model_name,
                     model_version=model_version
                 )
-                print(f"✅ ChatterBox Official 23-Lang '{language}' loaded via unified interface")
+                print(f"✅ {model_name} '{language}' loaded via unified interface")
                 return engine
             except FileNotFoundError as e:
                 print(f"⚠️ Local model incomplete: {e}")
@@ -780,7 +800,7 @@ def register_chatterbox_23lang_factory():
         # Use from_pretrained for auto-download
         engine = ChatterboxOfficial23LangTTS.from_pretrained(
             device=device,
-            model_name="ChatterBox Official 23-Lang",
+            model_name=model_name,
             model_version=model_version
         )
 
@@ -1119,18 +1139,256 @@ def register_cosyvoice_factory():
     unified_model_interface.register_model_factory("cosyvoice", "tts", cosyvoice_factory)
 
 
+def register_qwen3_tts_factory():
+    """Register Qwen3-TTS model factory"""
+    def qwen3_tts_factory(config: ModelLoadConfig):
+        """Factory for Qwen3-TTS models with ComfyUI integration"""
+        import os
+        import sys
+        import torch
+
+        # Extract parameters
+        model_name = config.model_name  # e.g., "Qwen3-TTS-12Hz-1.7B-CustomVoice"
+        model_path = config.model_path or model_name
+        device = config.device or "auto"
+
+        # Get additional params
+        additional_params = config.additional_params or {}
+        dtype_str = additional_params.get('dtype', 'auto')
+        attn_implementation = additional_params.get('attn_implementation', 'auto')
+
+        # Resolve model path using downloader (handles "local:" prefix and auto-download)
+        from engines.qwen3_tts.qwen3_tts_downloader import Qwen3TTSDownloader
+        downloader = Qwen3TTSDownloader()
+        resolved_model_path = downloader.resolve_model_path(model_path)
+
+        if not resolved_model_path or not os.path.exists(resolved_model_path):
+            raise RuntimeError(f"Qwen3-TTS model not found at {resolved_model_path}. Auto-download should have been triggered earlier.")
+
+        try:
+            # Add bundled implementation to sys.path
+            qwen3_impl_dir = os.path.join(os.path.dirname(__file__), '..', '..', 'engines', 'qwen3_tts', 'impl')
+            qwen3_impl_dir = os.path.abspath(qwen3_impl_dir)
+            if qwen3_impl_dir not in sys.path:
+                sys.path.insert(0, qwen3_impl_dir)
+
+            # Import bundled Qwen3-TTS implementation
+            from qwen_tts import Qwen3TTSModel
+
+            # Resolve torch dtype
+            dtype_map = {
+                "bfloat16": torch.bfloat16,
+                "float16": torch.float16,
+                "float32": torch.float32,
+            }
+            if dtype_str in dtype_map:
+                torch_dtype = dtype_map[dtype_str]
+            else:
+                # Auto mode: detect GPU compute capability
+                if torch.cuda.is_available():
+                    major, minor = torch.cuda.get_device_capability()
+                    torch_dtype = torch.bfloat16 if major >= 8 else torch.float16
+                else:
+                    torch_dtype = torch.float16
+
+            # Resolve device
+            if device == "auto":
+                device = "cuda" if torch.cuda.is_available() else "cpu"
+
+            # Resolve attention implementation
+            use_sage_attn = False
+            if attn_implementation == "auto":
+                # Priority: sage_attn > flash_attention_2 > sdpa > eager
+                try:
+                    from sageattention import sageattn
+                    resolved_attn = "sage_attn"
+                    use_sage_attn = True
+                    print(f"[Qwen3-TTS] Auto-selected attention: sage_attn")
+                except ImportError:
+                    try:
+                        import flash_attn
+                        resolved_attn = "flash_attention_2"
+                        print(f"[Qwen3-TTS] Auto-selected attention: flash_attention_2")
+                    except ImportError:
+                        resolved_attn = "sdpa"  # PyTorch scaled dot product attention
+                        print(f"[Qwen3-TTS] Auto-selected attention: sdpa")
+            elif attn_implementation == "sage_attn":
+                resolved_attn = "sage_attn"
+                use_sage_attn = True
+            else:
+                resolved_attn = attn_implementation
+
+            print(f"🔄 Loading Qwen3-TTS: {model_name}")
+            print(f"   Path: {resolved_model_path}")
+            print(f"   Device: {device} | Dtype: {torch_dtype} | Attention: {resolved_attn}")
+
+            # Handle sage_attn (requires post-load patching)
+            if use_sage_attn:
+                try:
+                    from sageattention import sageattn
+                    print(f"🔧 [Qwen3-TTS] Loading model with sage_attn (sageattention)")
+
+                    # Load model without attn_implementation (will use default)
+                    qwen3_model = Qwen3TTSModel.from_pretrained(
+                        pretrained_model_name_or_path=resolved_model_path,
+                        device_map=device,
+                        dtype=torch_dtype
+                    )
+
+                    # Patch attention modules to use sageattention
+                    patched_count = 0
+                    for name, module in qwen3_model.model.named_modules():
+                        # Look for attention modules
+                        if hasattr(module, 'forward') and ('Attention' in type(module).__name__ or 'attn' in name.lower()):
+                            try:
+                                original_forward = module.forward
+
+                                def make_sage_forward(orig_forward, mod):
+                                    def sage_forward(*args, **kwargs):
+                                        # Extract q, k, v from attention call
+                                        if len(args) >= 3:
+                                            q, k, v = args[0], args[1], args[2]
+                                        else:
+                                            return orig_forward(*args, **kwargs)
+
+                                        # Handle attention_mask
+                                        attn_mask = kwargs.get('attention_mask', None)
+
+                                        # Call sageattention
+                                        out = sageattn(q, k, v, is_causal=False, attn_mask=attn_mask)
+                                        return out
+                                    return sage_forward
+
+                                module.forward = make_sage_forward(original_forward, module)
+                                patched_count += 1
+                            except Exception:
+                                pass
+
+                    print(f"🔧 [Qwen3-TTS] Patched {patched_count} attention modules with sage_attn")
+
+                except (ImportError, Exception) as e:
+                    print(f"⚠️ [Qwen3-TTS] Failed with sage_attn, falling back to sdpa: {e}")
+                    # Fallback to sdpa
+                    qwen3_model = Qwen3TTSModel.from_pretrained(
+                        pretrained_model_name_or_path=resolved_model_path,
+                        device_map=device,
+                        dtype=torch_dtype,
+                        attn_implementation="sdpa"
+                    )
+            else:
+                # Load with standard attention implementation
+                qwen3_model = Qwen3TTSModel.from_pretrained(
+                    pretrained_model_name_or_path=resolved_model_path,
+                    device_map=device,
+                    dtype=torch_dtype,
+                    attn_implementation=resolved_attn
+                )
+
+            print(f"✅ Qwen3-TTS model '{model_name}' loaded successfully")
+
+            # Return the bundled model directly
+            return qwen3_model
+
+        except ImportError as e:
+            raise ImportError(f"Qwen3-TTS bundled implementation not available. Error: {e}")
+        except Exception as e:
+            raise RuntimeError(f"Failed to load Qwen3-TTS model: {e}")
+
+    unified_model_interface.register_model_factory("qwen3_tts", "tts", qwen3_tts_factory)
+
+
+def register_qwen3_asr_factory():
+    """Register Qwen3-ASR model factory"""
+    def qwen3_asr_factory(config: ModelLoadConfig):
+        """Factory for Qwen3-ASR models with ComfyUI integration"""
+        import torch
+
+        model_name = config.model_name or "Qwen3-ASR-1.7B"
+        model_path = config.model_path or model_name
+        device = config.device or "auto"
+
+        additional_params = config.additional_params or {}
+        precision = additional_params.get("precision", "auto")
+        attn_implementation = additional_params.get("attn_implementation", "sdpa")
+        max_new_tokens = int(additional_params.get("max_new_tokens", 256))
+        forced_aligner = additional_params.get("forced_aligner")
+        forced_aligner_kwargs = additional_params.get("forced_aligner_kwargs")
+
+        from engines.qwen3_tts.qwen3_asr_downloader import Qwen3ASRDownloader
+        downloader = Qwen3ASRDownloader()
+        resolved_model_path = downloader.resolve_model_path(model_path)
+
+        dtype_map = {
+            "bf16": torch.bfloat16,
+            "fp16": torch.float16,
+            "fp32": torch.float32,
+        }
+        if precision in dtype_map:
+            torch_dtype = dtype_map[precision]
+        else:
+            if torch.cuda.is_available():
+                major, _minor = torch.cuda.get_device_capability()
+                torch_dtype = torch.bfloat16 if major >= 8 else torch.float16
+            else:
+                torch_dtype = torch.float32
+
+        if device == "auto":
+            device = "cuda" if torch.cuda.is_available() else "cpu"
+
+        try:
+            from qwen_asr import Qwen3ASRModel
+        except ImportError:
+            try:
+                import sys
+                import os
+                qwen3_asr_impl = os.path.join(os.path.dirname(__file__), "..", "..", "engines", "qwen3_asr", "impl")
+                qwen3_asr_impl = os.path.abspath(qwen3_asr_impl)
+                if qwen3_asr_impl not in sys.path:
+                    sys.path.insert(0, qwen3_asr_impl)
+                from qwen_asr import Qwen3ASRModel
+            except Exception as e:
+                raise ImportError(f"Qwen3-ASR dependency not available. Error: {e}")
+
+        loader_kwargs = {
+            "pretrained_model_name_or_path": resolved_model_path,
+            "dtype": torch_dtype,
+            "device_map": device,
+            "max_new_tokens": max_new_tokens,
+            "attn_implementation": attn_implementation,
+        }
+
+        if forced_aligner:
+            loader_kwargs["forced_aligner"] = downloader.resolve_model_path(forced_aligner)
+            loader_kwargs["forced_aligner_kwargs"] = forced_aligner_kwargs or {
+                "dtype": torch_dtype,
+                "device_map": device,
+                "attn_implementation": attn_implementation,
+            }
+
+        print(f"🔄 Loading Qwen3-ASR: {model_name}")
+        print(f"   Path: {resolved_model_path}")
+        print(f"   Device: {device} | Dtype: {torch_dtype} | Attention: {attn_implementation}")
+
+        model = Qwen3ASRModel.from_pretrained(**loader_kwargs)
+        print(f"✅ Qwen3-ASR model '{model_name}' loaded successfully")
+        return model
+
+    unified_model_interface.register_model_factory("qwen3_asr", "asr", qwen3_asr_factory)
+
 
 def initialize_all_factories():
     """Initialize all model factories"""
     register_chatterbox_factory()
     register_chatterbox_23lang_factory()
     register_f5tts_factory()
-    register_step_audio_editx_factory() 
+    register_step_audio_editx_factory()
     register_higgs_audio_factory()
     register_rvc_factory()
     register_vibevoice_factory()
     register_index_tts_factory()
     register_cosyvoice_factory()
+    register_qwen3_tts_factory()
+    register_qwen3_asr_factory()
 
 
 # Auto-initialize on import

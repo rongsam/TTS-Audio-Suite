@@ -7,7 +7,7 @@
 [![Dynamic TOML Badge][version-shield]][version-url]
 [![Ko-Fi](https://img.shields.io/badge/Ko--fi-F16061?style=for-the-badge&logo=ko-fi&logoColor=white)](https://ko-fi.com/diogogo)
 
-# TTS Audio Suite v4.16.13
+# TTS Audio Suite v4.21.2
 
 [![ko-fi](https://ko-fi.com/img/githubbutton_sm.svg)](https://ko-fi.com/diogogo)
 
@@ -18,6 +18,29 @@
 </div>
 
 A comprehensive ComfyUI extension providing unified Text-to-Speech, Voice Conversion, and Audio Editing capabilities through multiple engines including ChatterboxTTS, F5-TTS, Higgs Audio 2, Step Audio EditX, and RVC (Real-time Voice Conversion), with modular architecture designed for extensibility and future engine integrations.
+
+<!-- ENGINE_COMPARISON_START -->
+
+## Quick Engine Comparison
+
+| Engine | Languages | Size | Key Features |
+|--------|-----------|------|--------------|
+| **F5-TTS** | 🇺🇸​🇩🇪​🇪🇸​🇫🇷​🇮🇹​🇯🇵 +4 | ~1.2GB each | Targeted Word/Speech Editing, Speed control |
+| **ChatterBox** | 🇺🇸​🇩🇪​🇫🇷​🇮🇹​🇯🇵​🇰🇷 +4 | ~4.3GB | Expressiveness slider |
+| **ChatterBox 23L** | 🌐 24 languages | ~4.3GB | 24 languages in single model, emotion tokens (v2 - doesn't work) |
+| **VibeVoice** | 🇺🇸​🇨🇳​🇩🇪​🇪🇸​🇫🇷​🇮🇹 +21 | 5.4GB / 18GB | 90-min long-form, Native 4-speaker (Base models) |
+| **Higgs Audio 2** | 🇺🇸​🇨🇳​🇩🇪​🇪🇸​🇰🇷 | ~9GB | 3 multi-speaker, CUDA graphs (55+ tokens/sec) |
+| **IndexTTS-2** | 🇺🇸​🇨🇳​🇯🇵 | ~4.7GB | Emotion Control: 8 vectors, Text as reference |
+| **CosyVoice3** | 🇺🇸​🇨🇳​🇯🇵​🇰🇷 | ~5.4GB | Paralinguistic tags |
+| **Qwen3-TTS** | 🇺🇸​🇨🇳​🇩🇪​🇪🇸​🇫🇷​🇮🇹 +4 | ~3-6GB | Voice design, ASR (Automatic Speech Recognition) |
+| **Step Audio EditX** | 🇺🇸​🇨🇳​🇯🇵​🇰🇷 | ~7GB | Second Pass Speech Editing Node: 14 emotions, 32 speaking styles |
+| **RVC** | 🌐 Any | 100-300MB | Real-time VC, Pitch shift (±14) |
+
+📊 **[Full comparison tables →](docs/ENGINE_COMPARISON.md)** | **[Language matrix →](docs/LANGUAGE_SUPPORT.md)** | **[Feature matrix →](docs/FEATURE_COMPARISON.md)**
+
+*Note: These tables are generated automatically from source: [tts_audio_suite_engines.yaml](docs/Dev%20reports/tts_audio_suite_engines.yaml)*
+
+<!-- ENGINE_COMPARISON_END -->
 
 ## 🚀 Project Evolution Timeline
 
@@ -57,12 +80,12 @@ Control               Official (23-lang)        90min Generation
 │
 │             🎨 Inline Editor Tags Era
 ▼                            |
-v4.12 ──────────────► v4.15 ────────────► v4.16
-Oct 25                Dez 25              Dez 25
-│                     │                   │
-Per-Seg Parameter     Step Audio EditX    CosyVoice3
-Switching [seed:24]   Inline Edit tags    TTS + VC
-                      <laughter:2>        
+v4.12 ──────────────► v4.15 ────────────► v4.16 ──────────► v4.19
+Oct 25                Dez 25              Dez 25          Jan 26
+│                     │                   │               │
+Per-Seg Parameter     Step Audio EditX    CosyVoice3      Qwen3-TTS
+Switching [seed:24]   Inline Edit tags    TTS + VC        TTS
+                      <laughter:2>                        VoiceDesign     
 ```
 
 <details>
@@ -84,9 +107,10 @@ Switching [seed:24]   Inline Edit tags    TTS + VC
   - [⚙️ Universal Streaming Architecture](#️-universal-streaming-architecture)
   - [🎙️ Higgs Audio 2 Voice Cloning](#️-higgs-audio-2-voice-cloning)
   - [🎵 VibeVoice Long-Form Generation](#-vibevoice-long-form-generation)
-  - [🌈 IndexTTS-2 With Emotion Control](#-indextts-2-with-emotion-control)
+  - [ IndexTTS-2 With Emotion Control](#-indextts-2-with-emotion-control)
   - [🎨 Step Audio EditX - LLM Audio Editing](#-step-audio-editx---llm-audio-editing)
   - [🗣️ CosyVoice3 Multilingual Voice Cloning](#️-cosyvoice3-multilingual-voice-cloning)
+  - [🎤 Qwen3-TTS - 3 Model Types with Text-to-Voice Design](#-qwen3-tts---3-model-types-with-text-to-voice-design)
   - [📝 Phoneme Text Normalizer](#-phoneme-text-normalizer)
   - [🏷️ Multiline TTS Tag Editor & Per-Segment Parameter Switching](#️-multiline-tts-tag-editor--per-segment-parameter-switching)
 - [🚀 Quick Start](#-quick-start)
@@ -150,7 +174,8 @@ Switching [seed:24]   Inline Edit tags    TTS + VC
 
 ## Features
 
-- 🎤 **Multi-Engine TTS** - ChatterBox TTS, **Chatterbox Multilingual TTS**, F5-TTS, Higgs Audio 2, VibeVoice, **IndexTTS-2**, and **CosyVoice3** with voice cloning, reference audio synthesis, and production-grade quality
+- 🎤 **Multi-Engine TTS** - ChatterBox TTS, **Chatterbox Multilingual TTS**, F5-TTS, Higgs Audio 2, VibeVoice, **IndexTTS-2**, **CosyVoice3**, and **Qwen3-TTS** with voice cloning, reference audio synthesis, and production-grade quality
+- ✏️ **ASR Transcription** - Qwen3-ASR via the ✏️ ASR Transcribe node (more engines planned)
 - 🎨 **Audio Post-Processing** - **Step Audio EditX** LLM-based audio editing with paralinguistic effects (laughter, breathing, sigh), emotion control (14 emotions), speaking styles (32 styles), speed adjustment, and voice restoration → **[📖 Inline Edit Tags Guide](docs/INLINE_EDIT_TAGS_USER_GUIDE.md)**
 - 🔄 **Voice Conversion** - ChatterBox VC with iterative refinement + RVC real-time conversion using .pth character models
 - 🎙️ **Voice Capture & Recording** - Smart silence detection and voice input recording
@@ -165,6 +190,7 @@ Switching [seed:24]   Inline Edit tags    TTS + VC
 - 🌊 **Audio Wave Analyzer** - Interactive waveform visualization and precise timing extraction for F5-TTS workflows → **[📖 Complete Guide](docs/🌊_Audio_Wave_Analyzer-Complete_User_Guide.md)**
 - 🗣️ **Silent Speech Analyzer** - Video analysis with experimental viseme detection, mouth movement tracking, and base SRT timing generation from silent video using MediaPipe
 - ⚙️ **Parallel Processing** - Configurable worker-based processing via `batch_size` parameter (Note: sequential processing with `batch_size=0` remains optimal for performance)
+- ⚡ **Performance Optimizations** - Qwen3-TTS supports torch.compile for ~1.7x speedup (requires PyTorch 2.10+ and triton-windows 3.6+) → **[📖 Optimization Guide](docs/qwen3_tts_optimizations.md)**
 
 <div align="right"><a href="#-table-of-contents">Back to top</a></div>
 
@@ -276,16 +302,6 @@ For comprehensive technical information, refer to the [SRT_IMPLEMENTATION.md](do
 <details>
 <summary><h3>🎵 VibeVoice Long-Form Generation</h3></summary>
 
-**NEW in v4.6.0**: Microsoft VibeVoice engine for unprecedented long-form audio generation!
-
-* **90-Minute Generation Capability**: Generate up to 90 minutes of continuous audio in a single session
-* **Dual Multi-Speaker Modes**: Choose between Custom Character Switching and Native Multi-Speaker for different workflow needs
-* **Microsoft Quality**: Official Microsoft VibeVoice models (1.5B and 7B parameter variants) with production-grade output
-* **Advanced Parameter Control**: CFG scale, sampling modes, temperature, and token limits for fine-tuned generation
-
-**Key Capabilities:**
-
-- **Long-Form Audio**: Break through traditional TTS length limitations with 90-minute generation
 - **Custom Character Switching**: Use `[Alice]`, `[Bob]` character tags with voice files from the voices folder - supports unlimited characters with pause tags and per-character control
 - **Native Multi-Speaker**: Efficient single-pass generation supporting both `[Character]` tag auto-conversion and manual "Speaker 1: Hello" format for up to 4 speakers  
 - **Voice File Integration**: Seamless compatibility with existing voice folder structure and Character Voices node
@@ -294,7 +310,8 @@ For comprehensive technical information, refer to the [SRT_IMPLEMENTATION.md](do
 
 **Technical Features:**
 
-- **Dual Model Support**: Microsoft vibevoice-1.5B (2.7B params, faster) and community vibevoice-7B (9.3B params, higher quality)
+- **Model Support**: Microsoft vibevoice-1.5B/7B (official models for English/Chinese) + vibevoice-hindi-1.5B/7B (community Hindi finetunes) + **KugelAudio-0-Open (multilingual 7B variant)**
+- **Language Detection**: VibeVoice/KugelAudio automatically detect language from input text and reference audio - **no language parameters are used**
 - **Intelligent Caching**: Advanced caching system with mode-aware invalidation for instant regeneration
 - **Memory Optimization**: Configurable chunking system balances quality with memory usage
 - **Unified Architecture**: Seamless integration with existing TTS Text and TTS SRT nodes
@@ -358,6 +375,8 @@ Back to the narrator for the conclusion.
 
 * **F5-TTS**: English (en), German (de), Spanish (es), French (fr), Italian (it), Japanese (jp), Thai (th), Portuguese (pt), Hindi (hi)
 * **ChatterBox**: English (en), German (de, de-best, de-expressive), Italian (it), French (fr), Russian (ru), Armenian (hy), Georgian (ka), Japanese (ja), Korean (ko), Norwegian (no/nb/nn)
+* **ChatterBox 23-Lang** & **Qwen3-TTS**: Use explicit language parameters - language tags directly control output
+* **VibeVoice/KugelAudio**: Do NOT use language parameters - auto-detect from text (language tags have no effect on these models)
 
 Example usage:
 
@@ -496,9 +515,11 @@ The **Chatterbox Multilingual TTS** (referred to internally as "ChatterBox Offic
 * **MIT Licensed**: Fully open-source with commercial usage rights
 * **Perth Watermarking**: Built-in responsible AI usage (disabled by default for compatibility)
 
-**🌍 Supported Languages (23 total):**
+**🌍 Supported Languages (23 total + Vietnamese community finetune):**
 
 Arabic (ar), Danish (da), German (de), Greek (el), English (en), Spanish (es), Finnish (fi), French (fr), Hebrew (he), Hindi (hi), Italian (it), Japanese (ja), Korean (ko), Malay (ms), Dutch (nl), Norwegian (no), Polish (pl), Portuguese (pt), Russian (ru), Swedish (sv), Swahili (sw), Turkish (tr), Chinese (zh)
+
+**🇻🇳 Vietnamese (Viterbox)**: Community finetune by Dolly AI 23 with expanded Vietnamese tokenization (dolly-vn/viterbox) - select from model version dropdown
 
 **🔧 Fully Integrated Features:**
 
@@ -714,6 +735,57 @@ Instruct: 用兴奋的语气说话。
 - Voice cloning with fine emotional control via instructions
 - Multi-character conversations across languages
 - Professional localization with native accent preservation
+
+</details>
+
+<details>
+<summary><h3>🎤 Qwen3-TTS - 3 Model Types with Text-to-Voice Design</h3></summary>
+
+**NEW in v4.19**: Alibaba's Qwen3-TTS with 3 distinct model types - CustomVoice presets, unique text-to-voice design, and zero-shot voice cloning!
+**NEW**: ✏️ Qwen3-ASR transcription via the Unified ASR Transcribe node (Qwen3 engine)
+
+**Model Types:**
+
+* **🎭 CustomVoice Model**: 9 preset multilingual speakers (Vivian, Serena, Uncle_Fu, Dylan, Eric, Ryan, Aiden, Ono_Anna, Sohee)
+  - Optional instruction field for style control ("Speak cheerfully", "Sound professional")
+  - Character switching auto-maps to different preset speakers
+
+* **✍️ VoiceDesign Model**: **UNIQUE** - Create voices from text descriptions
+  - Input: "A cheerful young woman with a bright, energetic tone"
+  - Output: Instant voice generation matching the description
+  - Smart disk caching for reuse across sessions
+
+* **🎤 Base Model**: Zero-shot voice cloning from 3-30s reference audio
+  - In-Context Learning (ICL) mode for best quality
+  - X-Vector mode for faster generation
+
+**Technical Specs:**
+
+* **🌍 10 Languages**: Chinese, English, Japanese, Korean, German, French, Russian, Portuguese, Spanish, Italian
+* **📏 2 Model Sizes**: 0.6B and 1.7B parameter variants
+* **⚡ Attention Options**: eager, flash_attention_2, sdpa, sage_attn for performance tuning
+* **🔧 Generation Control**: Temperature, top_k, top_p, repetition_penalty parameters
+* **⚡ torch.compile Optimizations**: Optional 1.7x speedup (PyTorch 2.10+ required) → [📖 Setup Guide](docs/qwen3_tts_optimizations.md)
+
+**Unified Features Support:**
+- Works with all project features: character switching, language switching, pause tags, SRT timing, Step Audio EditX post-processing
+- **ASR Transcription**: Qwen3 engine now supports ASR via the ✏️ ASR Transcribe node
+
+**Voice Designer Node:**
+
+Unique text-to-voice generation node that creates voices from descriptions and outputs unified NARRATOR_VOICE format for use with any TTS node.
+
+```
+Description: "A deep, authoritative male voice with clear articulation"
+→ Voice generated and cached → Use in TTS Text/SRT nodes
+```
+
+**Perfect for:**
+
+- Quick multilingual content with preset speakers (CustomVoice)
+- **Creative voice design from text descriptions** (VoiceDesign) - **unique to Qwen3-TTS**
+- High-quality voice cloning with reference audio (Base)
+- Content requiring specific vocal characteristics defined by text
 
 </details>
 
@@ -1222,9 +1294,10 @@ ComfyUI/models/TTS/chatterbox_official_23lang/
 **Model Selection:**
 
 - Choose "ChatterBox Official 23-Lang" from Unified TTS Engine dropdown
-- Select model version (v1 or v2) in the Engine Configuration node
-- **Auto-download**: Missing v2 files download automatically on first use (only ~2.2GB if v1 already installed)
-- Both versions can coexist - switch between them without re-downloading
+- Select model version (v1, v2, or Vietnamese (Viterbox)) in the Engine Configuration node
+- **Auto-download**: Missing files download automatically on first use
+- All versions can coexist - switch between them without re-downloading
+- Vietnamese (Viterbox) is a community finetune with expanded Vietnamese tokenization (24 languages total)
 
 ### 5. F5-TTS Models (Optional)
 
@@ -1615,7 +1688,61 @@ ComfyUI/models/TTS/CosyVoice/
 
 **Usage**: Select CosyVoice3 from Unified TTS Engine → Choose model variant → Auto-download on first use!
 
-### 13. Restart ComfyUI
+### 13. Qwen3-TTS Models (NEW in v4.19+)
+
+**Repository:** [Qwen/Qwen3-TTS](https://huggingface.co/collections/Qwen/qwen3-tts-67898f07e56fcde8e7b57fb1) | **Size:** 0.6B (~1.5GB), 1.7B (~4.2GB) | **Auto-Download:** ✅
+
+**Model Types & Variants:**
+
+| Model Type | Size | Description | Repository | Auto-Download |
+|------------|------|-------------|------------|---------------|
+| **CustomVoice** | 0.6B / 1.7B | 9 preset speakers + instruction control | [0.6B](https://huggingface.co/Qwen/Qwen3-TTS-12Hz-0.6B-CustomVoice) / [1.7B](https://huggingface.co/Qwen/Qwen3-TTS-12Hz-1.7B-CustomVoice) | ✅ |
+| **VoiceDesign** | 1.7B only | **Text-to-voice design** (unique) | [1.7B](https://huggingface.co/Qwen/Qwen3-TTS-12Hz-1.7B-VoiceDesign) | ✅ |
+| **Base** | 0.6B / 1.7B | Zero-shot voice cloning | [0.6B](https://huggingface.co/Qwen/Qwen3-TTS-12Hz-0.6B-Base) / [1.7B](https://huggingface.co/Qwen/Qwen3-TTS-12Hz-1.7B-Base) | ✅ |
+
+**Model Sizes:**
+- **0.6B**: ~1.5GB (faster, good quality) - CustomVoice & Base only
+- **1.7B**: ~4.2GB (slower, better quality) - All 3 model types
+
+**Qwen3-ASR Models:**
+- **Qwen3-ASR-1.7B**: [Qwen/Qwen3-ASR-1.7B](https://huggingface.co/Qwen/Qwen3-ASR-1.7B)
+- **Qwen3-ForcedAligner-0.6B** (word timestamps): [Qwen/Qwen3-ForcedAligner-0.6B](https://huggingface.co/Qwen/Qwen3-ForcedAligner-0.6B)
+
+**Installation Structure:**
+
+```
+ComfyUI/models/TTS/qwen3_tts/
+├── Qwen3-TTS-12Hz-0.6B-CustomVoice/    # ~1.5GB
+├── Qwen3-TTS-12Hz-1.7B-CustomVoice/    # ~4.2GB
+├── Qwen3-TTS-12Hz-1.7B-VoiceDesign/    # ~4.2GB (1.7B only)
+├── Qwen3-TTS-12Hz-0.6B-Base/           # ~1.5GB
+├── Qwen3-TTS-12Hz-1.7B-Base/           # ~4.2GB
+├── qwen2-audio-encoder/                # ~0.5GB (shared tokenizer)
+└── asr/
+    ├── Qwen3-ASR-1.7B/                  # ~?GB
+    └── Qwen3-ForcedAligner-0.6B/        # ~?GB (word timestamps)
+```
+
+**Note**:
+- **Intelligent model selection** - automatically loads the right model type based on voice_preset selection
+- **Shared tokenizer** - qwen2-audio-encoder downloaded once, used by all models
+- Only downloads the specific model type + size you select
+- Switching between model types/sizes downloads the new variant
+- **⚡ torch.compile optimizations available** - Optional 1.7x speedup with PyTorch 2.10+ → [Setup Guide](docs/qwen3_tts_optimizations.md)
+
+**Usage**:
+- Select Qwen3-TTS from Unified TTS Engine
+- Choose model size (0.6B or 1.7B)
+- Choose voice preset (for CustomVoice) or "None" (for Base cloning)
+- Use Voice Designer node for VoiceDesign model
+- Auto-download on first use!
+
+**ASR Usage**:
+- Use the ✏️ ASR Transcribe node
+- Connect the Qwen3 Engine
+- Auto-downloads Qwen3-ASR models on first use
+
+### 14. Restart ComfyUI
 
 <div align="right"><a href="#-table-of-contents">Back to top</a></div>
 

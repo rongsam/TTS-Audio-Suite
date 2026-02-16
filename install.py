@@ -51,26 +51,59 @@ class TTSAudioInstaller:
             self.log("requirements.txt not found - skipping", "WARNING")
             return
 
-        # Parse requirements.txt to get all package names
+        # Parse requirements.txt to get all package specs (without importing modules)
         missing_packages = []
+        package_specs = {}
         try:
+            try:
+                from importlib.metadata import version, PackageNotFoundError
+            except ImportError:
+                from importlib_metadata import version, PackageNotFoundError
+
+            try:
+                from packaging.requirements import Requirement
+                from packaging.utils import canonicalize_name
+            except Exception:
+                Requirement = None
+                canonicalize_name = None
+
             with open(requirements_path, 'r', encoding='utf-8') as f:
                 for line in f:
                     line = line.strip()
                     if line and not line.startswith('#'):
                         # Remove inline comments
-                        line = line.split('#')[0].strip()
-                        if not line:
+                        clean_line = line.split('#')[0].strip()
+                        if not clean_line:
                             continue
-                        # Extract package name (before >= <= == etc.)
-                        package_name = line.split('>=')[0].split('<=')[0].split('==')[0].split('<')[0].split('>')[0].split('!')[0].strip()
-                        if package_name:
+
+                        # Parse requirement with markers if possible
+                        if Requirement:
                             try:
-                                # Handle package name differences (dashes vs underscores)
-                                import_name = package_name.replace("-", "_")
-                                __import__(import_name)
-                            except ImportError:
-                                missing_packages.append(package_name)
+                                req = Requirement(clean_line)
+                            except Exception:
+                                req = None
+                        else:
+                            req = None
+
+                        if req and req.marker and not req.marker.evaluate():
+                            continue
+
+                        if req:
+                            package_name = req.name
+                        else:
+                            # Fallback: extract package name (before >= <= == etc.)
+                            package_name = clean_line.split('>=')[0].split('<=')[0].split('==')[0].split('<')[0].split('>')[0].split('!')[0].strip()
+
+                        if not package_name:
+                            continue
+
+                        normalized_name = canonicalize_name(package_name) if canonicalize_name else package_name
+                        package_specs[normalized_name] = clean_line
+
+                        try:
+                            version(package_name)
+                        except PackageNotFoundError:
+                            missing_packages.append(package_name)
         except Exception as e:
             self.log(f"Error reading requirements.txt: {e}", "WARNING")
             return
@@ -81,20 +114,8 @@ class TTSAudioInstaller:
 
             # Install each missing package individually using our safe method
             for package in missing_packages:
-                # Get the full package spec from requirements.txt
-                package_spec = package
-                try:
-                    with open(requirements_path, 'r', encoding='utf-8') as f:
-                        for line in f:
-                            line = line.strip()
-                            if line and not line.startswith('#'):
-                                # Remove inline comments
-                                clean_line = line.split('#')[0].strip()
-                                if clean_line and clean_line.startswith(package):
-                                    package_spec = clean_line
-                                    break
-                except:
-                    pass
+                normalized_name = canonicalize_name(package) if canonicalize_name else package
+                package_spec = package_specs.get(normalized_name, package)
 
                 self.run_pip_command(["install", package_spec], f"Installing {package}", ignore_errors=True)
         else:
@@ -110,25 +131,46 @@ class TTSAudioInstaller:
         else:
             return self.check_linux_dependencies()
     
+    def _find_macos_library(self, lib_name):
+        """Find library on macOS, checking both system paths and Homebrew installations"""
+        import ctypes.util
+        import glob
+
+        # First try standard ctypes.util.find_library (works for system libraries)
+        if ctypes.util.find_library(lib_name):
+            return True
+
+        # Fallback: Check Homebrew installation paths directly
+        # Apple Silicon Macs: /opt/homebrew/lib
+        # Intel Macs: /usr/local/lib
+        homebrew_paths = ['/opt/homebrew/lib', '/usr/local/lib']
+
+        for homebrew_path in homebrew_paths:
+            # Look for .dylib files matching the library name
+            pattern = f"{homebrew_path}/lib{lib_name}*.dylib"
+            matches = glob.glob(pattern)
+            if matches:
+                return True
+
+        return False
+
     def check_macos_dependencies(self):
         """Check for required system libraries on macOS"""
         self.log("Checking macOS system dependencies...", "INFO")
         missing_deps = []
-        
+
         # Check for libsamplerate (needed by resampy/soxr)
         try:
-            import ctypes.util
-            if not ctypes.util.find_library('samplerate'):
+            if not self._find_macos_library('samplerate'):
                 missing_deps.append(('libsamplerate', 'audio resampling'))
-        except:
+        except Exception:
             pass
-        
+
         # Check for portaudio (needed for sounddevice)
         try:
-            import ctypes.util
-            if not ctypes.util.find_library('portaudio'):
+            if not self._find_macos_library('portaudio'):
                 missing_deps.append(('portaudio', 'voice recording'))
-        except:
+        except Exception:
             pass
         
         if missing_deps:
@@ -227,7 +269,10 @@ class TTSAudioInstaller:
             return True
         except subprocess.CalledProcessError as e:
             if ignore_errors:
-                self.log(f"Warning: {description} failed (continuing anyway): {e.stderr.strip()}", "WARNING")
+                error_msg = e.stderr.strip()
+                if len(error_msg) > 1000:
+                    error_msg = f"...(last 1000 chars)...\n{error_msg[-1000:]}"
+                self.log(f"Warning: {description} failed (continuing anyway): {error_msg}", "WARNING")
                 return False
             else:
                 self.log(f"Error: {description} failed: {e.stderr.strip()}", "ERROR")
@@ -526,7 +571,7 @@ class TTSAudioInstaller:
             "pypinyin", 
             "unidecode",
             "omegaconf>=2.3.0",
-            "transformers>=4.51.3",  # Required for VibeVoice compatibility
+            "transformers>=4.51.3,<=4.57.3",  # Required for VibeVoice compatibility. 5.0.0 breaks Qwen3-TTS tokenizers.
             
             # Bundled engine dependencies (safe)
             "conformer>=0.3.2",      # ChatterBox engine
@@ -644,7 +689,10 @@ class TTSAudioInstaller:
         self.log("Installing RVC voice conversion dependencies", "INFO")
 
         # Install core RVC dependency first (with graceful failure for build-tool-less systems)
-        self.run_pip_command(["install", "monotonic-alignment-search"], "Installing monotonic-alignment-search", ignore_errors=True)
+        if self.check_package_installed("monotonic-alignment-search"):
+            self.log("monotonic-alignment-search already satisfied - skipping", "SUCCESS")
+        else:
+            self.run_pip_command(["install", "monotonic-alignment-search"], "Installing monotonic-alignment-search", ignore_errors=True)
         
         # Smart faiss installation: GPU on Linux with CUDA, CPU fallback for Windows/compatibility
         cuda_version = self.detect_cuda_version()
@@ -677,8 +725,11 @@ class TTSAudioInstaller:
                 self.log("Windows + CUDA detected - faiss-gpu not available on Windows, using CPU version", "INFO")
             else:
                 self.log("No CUDA detected - using faiss-cpu", "INFO")
-            
-            self.run_pip_command(["install", "faiss-cpu>=1.7.4"], "Installing faiss-cpu for RVC voice matching")
+
+            if self.check_package_installed("faiss-cpu>=1.7.4"):
+                self.log("faiss-cpu already satisfied - skipping", "SUCCESS")
+            else:
+                self.run_pip_command(["install", "faiss-cpu>=1.7.4"], "Installing faiss-cpu for RVC voice matching")
 
     def install_numpy_with_constraints(self):
         """Install numpy with version constraints for compatibility"""
@@ -757,12 +808,15 @@ class TTSAudioInstaller:
                 
                 if major >= 2:
                     # NumPy 2.x can use audio-separator
-                    self.log(f"NumPy {numpy_version} supports audio-separator - installing", "INFO")
-                    self.run_pip_command(
-                        ["install", "audio-separator>=0.35.2"], 
-                        "Installing audio-separator for enhanced vocal removal",
-                        ignore_errors=True  # It's optional, so don't fail if it doesn't install
-                    )
+                    if self.check_package_installed("audio-separator>=0.35.2"):
+                        self.log("audio-separator already satisfied - skipping", "SUCCESS")
+                    else:
+                        self.log(f"NumPy {numpy_version} supports audio-separator - installing", "INFO")
+                        self.run_pip_command(
+                            ["install", "audio-separator>=0.35.2"],
+                            "Installing audio-separator for enhanced vocal removal",
+                            ignore_errors=True  # It's optional, so don't fail if it doesn't install
+                        )
                 else:
                     # NumPy 1.x - skip audio-separator, will use bundled implementations
                     self.log(f"NumPy {numpy_version} detected - skipping audio-separator (will use bundled vocal removal)", "INFO")
@@ -798,6 +852,9 @@ class TTSAudioInstaller:
 
         # Install safe dependencies - these won't cause downgrades
         for dep in gradio_safe_deps:
+            if self.check_package_installed(dep):
+                self.log(f"Pre-installing: {dep} (already satisfied)", "SUCCESS")
+                continue
             self.run_pip_command(
                 ["install", dep],
                 f"Pre-installing: {dep}",
@@ -818,41 +875,40 @@ class TTSAudioInstaller:
 
         # Try GPU version first if CUDA is available
         if cuda_version != "cpu":
+            if self.check_package_installed("onnxruntime-gpu>=1.19.0"):
+                self.log("onnxruntime-gpu already satisfied - skipping", "SUCCESS")
+                return
             self.log("CUDA detected - attempting onnxruntime-gpu for GPU acceleration", "INFO")
             try:
                 # Try GPU version without --no-deps (modern versions don't force numpy downgrade)
+                # Relaxed constraint to >=1.19.0 to avoid forcing upgrades from 1.22.0
                 gpu_success = self.run_pip_command(
-                    ["install", "onnxruntime-gpu>=1.23.0"],
+                    ["install", "onnxruntime-gpu>=1.19.0"],
                     "Installing onnxruntime-gpu (GPU acceleration for ONNX models)",
                     ignore_errors=True
                 )
 
                 if gpu_success:
-                    # Verify GPU provider is available
-                    try:
-                        result = subprocess.run([
-                            sys.executable, "-c",
-                            "import onnxruntime; providers = onnxruntime.get_available_providers(); print('CUDAExecutionProvider' in providers)"
-                        ], capture_output=True, text=True, timeout=10)
-
-                        if "True" in result.stdout:
-                            self.log("onnxruntime-gpu with CUDA support installed successfully", "SUCCESS")
-                            return
-                        else:
-                            self.log("onnxruntime-gpu installed but CUDA provider not available - trying CPU version", "WARNING")
-                    except Exception as e:
-                        self.log(f"Could not verify CUDA provider: {e}", "WARNING")
+                    # Trust that onnxruntime-gpu installation succeeded
+                    # Note: CUDA provider verification can fail in restricted environments (Docker, containers)
+                    # even when onnxruntime-gpu works fine at runtime. Installing both CPU and GPU versions
+                    # causes Python to prefer the CPU version, degrading performance.
+                    self.log("onnxruntime-gpu installed successfully", "SUCCESS")
+                    return
 
             except subprocess.CalledProcessError:
                 self.log("onnxruntime-gpu installation failed - falling back to CPU version", "WARNING")
 
         # Fallback to CPU version
-        self.log("Installing onnxruntime (CPU) for OpenSeeFace and Step Audio EditX", "INFO")
-        self.run_pip_command(
-            ["install", "onnxruntime>=1.17.0"],
-            "Installing onnxruntime (CPU version)",
-            ignore_errors=True
-        )
+        if self.check_package_installed("onnxruntime>=1.17.0"):
+            self.log("onnxruntime already satisfied - skipping", "SUCCESS")
+        else:
+            self.log("Installing onnxruntime (CPU) for OpenSeeFace and Step Audio EditX", "INFO")
+            self.run_pip_command(
+                ["install", "onnxruntime>=1.17.0"],
+                "Installing onnxruntime (CPU version)",
+                ignore_errors=True
+            )
 
     def install_problematic_packages(self):
         """Install packages that cause conflicts using --no-deps"""
@@ -870,6 +926,9 @@ class TTSAudioInstaller:
         ]
 
         for package in problematic_packages:
+            if self.check_package_installed(package):
+                self.log(f"{package} already satisfied - skipping", "SUCCESS")
+                continue
             self.run_pip_command(
                 ["install", package, "--no-deps"],
                 f"Installing {package} (--no-deps)",
@@ -881,6 +940,21 @@ class TTSAudioInstaller:
         self.log("Installing VibeVoice TTS engine", "INFO")
         
         # First ensure critical dependencies that VibeVoice needs but might downgrade
+        
+        # Handle 'av' (PyAV) dependency specifically - frequent failure point on Windows
+        self.log("Checking VibeVoice 'av' dependency...", "INFO")
+        if self.check_package_installed("av"):
+            av_success = True
+            self.log("av already satisfied - skipping", "SUCCESS")
+        else:
+            # Try installing av first (often fails on Windows without Build Tools)
+            av_success = self.run_pip_command(["install", "av"], "Installing av (PyAV)", ignore_errors=True)
+        if not av_success:
+            self.log("Failed to install 'av' (PyAV) - VibeVoice may not work", "WARNING")
+            if self.is_windows:
+                self.log("Windows Fix: Install Visual C++ Build Tools or use a compatible Python version", "INFO")
+                self.log("This is often due to missing pre-built wheels for your Python version", "INFO")
+
         vibevoice_deps = [
             "aiortc",      # Audio/video real-time communication - safe to install
             "pyee",        # Event emitter - lightweight
@@ -892,8 +966,11 @@ class TTSAudioInstaller:
         
         self.log("Installing VibeVoice safe dependencies first", "INFO")
         for dep in vibevoice_deps:
+            if self.check_package_installed(dep):
+                self.log(f"{dep} already satisfied - skipping", "SUCCESS")
+                continue
             self.run_pip_command(
-                ["install", dep], 
+                ["install", dep],
                 f"Installing {dep}",
                 ignore_errors=True
             )
@@ -903,11 +980,36 @@ class TTSAudioInstaller:
         # Original: https://github.com/microsoft/VibeVoice.git (no longer exists)
         # This fork maintains the same API and should work identically
         self.log("Installing VibeVoice with --no-deps to prevent package downgrades", "WARNING")
-        self.run_pip_command(
-            ["install", "git+https://github.com/FushionHub/VibeVoice.git", "--no-deps"],
-            "Installing VibeVoice (--no-deps)",
+        if self.check_package_installed("vibevoice"):
+            self.log("VibeVoice already satisfied - skipping", "SUCCESS")
+        else:
+            self.run_pip_command(
+                ["install", "git+https://github.com/FushionHub/VibeVoice.git", "--no-deps"],
+                "Installing VibeVoice (--no-deps)",
+                ignore_errors=True
+            )
+
+    def install_echo_tts(self):
+        """Install Echo-TTS with minimal dependency impact"""
+        self.log("Installing Echo-TTS engine", "INFO")
+
+        if self.check_package_installed("echo-tts"):
+            self.log("echo-tts already satisfied - skipping", "SUCCESS")
+            return
+
+        installed = self.run_pip_command(
+            ["install", "echo-tts", "--no-deps"],
+            "Installing Echo-TTS (--no-deps)",
             ignore_errors=True
         )
+
+        if not installed:
+            self.log("Echo-TTS pip install failed - trying GitHub source", "WARNING")
+            self.run_pip_command(
+                ["install", "git+https://github.com/jordandare/echo-tts.git", "--no-deps"],
+                "Installing Echo-TTS from GitHub (--no-deps)",
+                ignore_errors=True
+            )
 
     def install_f5tts_multilingual_support(self):
         """Install phonemization support for F5-TTS multilingual models (Polish, German, French, Spanish, etc.)"""
@@ -916,11 +1018,14 @@ class TTSAudioInstaller:
         if self.is_windows:
             # Windows: pip package that includes espeak binaries (no separate system install needed)
             self.log("Windows detected - installing espeak-phonemizer-windows for multilingual F5-TTS", "INFO")
-            self.run_pip_command(
-                ["install", "espeak-phonemizer-windows"], 
-                "Installing espeak-phonemizer-windows (includes binaries)",
-                ignore_errors=True
-            )
+            if self.check_package_installed("espeak-phonemizer-windows"):
+                self.log("espeak-phonemizer-windows already satisfied - skipping", "SUCCESS")
+            else:
+                self.run_pip_command(
+                    ["install", "espeak-phonemizer-windows"],
+                    "Installing espeak-phonemizer-windows (includes binaries)",
+                    ignore_errors=True
+                )
             
             # Test if it works
             try:
@@ -939,12 +1044,16 @@ class TTSAudioInstaller:
         else:
             # Linux/Mac: pip package + separate system dependency
             self.log("Linux/Mac detected - installing phonemizer for multilingual F5-TTS support", "INFO")
-            
-            phonemizer_installed = self.run_pip_command(
-                ["install", "phonemizer"], 
-                "Installing phonemizer package",
-                ignore_errors=True
-            )
+
+            if self.check_package_installed("phonemizer"):
+                phonemizer_installed = True
+                self.log("phonemizer already satisfied - skipping", "SUCCESS")
+            else:
+                phonemizer_installed = self.run_pip_command(
+                    ["install", "phonemizer"],
+                    "Installing phonemizer package",
+                    ignore_errors=True
+                )
             
             if phonemizer_installed:
                 # Test if system espeak is available
@@ -1005,11 +1114,15 @@ class TTSAudioInstaller:
                 self.log("Could not test WeTextProcessing - trying fallback", "WARNING")
 
         # Fallback to wetext (older package, more compatible)
-        wetext_success = self.run_pip_command(
-            ["install", "wetext"],
-            "Installing wetext (fallback text normalization)",
-            ignore_errors=True
-        )
+        if self.check_package_installed("wetext"):
+            wetext_success = True
+            self.log("wetext already satisfied - skipping", "SUCCESS")
+        else:
+            wetext_success = self.run_pip_command(
+                ["install", "wetext"],
+                "Installing wetext (fallback text normalization)",
+                ignore_errors=True
+            )
 
         if wetext_success:
             try:
@@ -1260,6 +1373,7 @@ def main():
         installer.install_problematic_packages()
         installer.install_onnxruntime_with_gpu_support()  # Install ONNX with GPU acceleration if available
         installer.install_vibevoice()  # Install VibeVoice with careful dependency management
+        installer.install_echo_tts()  # Install Echo-TTS with minimal dependency impact
         installer.install_f5tts_multilingual_support()  # Install phonemization for Polish/multilingual F5-TTS
         installer.install_indexts_text_processing()  # Install IndexTTS-2 text normalization with fallback
         installer.handle_wandb_issues()  # Fix wandb circular import

@@ -188,6 +188,20 @@ Hello! This is unified SRT TTS with character switching.
             if engine_type == "chatterbox_official_23lang":
                 stable_params['model_version'] = config.get('model_version', 'v1')
 
+            # For Qwen3-TTS, include voice_preset, model_size, attn_implementation,
+            # and optimization settings since they determine model type and require model reload
+            # NOTE: instruct is a generation parameter, doesn't require model reload
+            if engine_type == "qwen3_tts":
+                stable_params['voice_preset'] = config.get('voice_preset', 'None (Zero-shot / Custom)')
+                stable_params['instruct'] = config.get('instruct', '')
+                stable_params['model_size'] = config.get('model_size', '1.7B')
+                stable_params['attn_implementation'] = config.get('attn_implementation', 'auto')
+                # CRITICAL: Include optimization settings - changing these requires model reload
+                # Without this, SRT and TTS text nodes would have different cache keys for the same model
+                stable_params['use_torch_compile'] = config.get('use_torch_compile', False)
+                stable_params['use_cuda_graphs'] = config.get('use_cuda_graphs', False)
+                stable_params['compile_mode'] = config.get('compile_mode', 'default')
+
             cache_key = f"{engine_type}_{hashlib.md5(str(sorted(stable_params.items())).encode()).hexdigest()[:8]}"
             
             # Check if we have a cached instance with the same stable configuration
@@ -570,6 +584,58 @@ Hello! This is unified SRT TTS with character switching.
                 }
                 return engine_instance
 
+            elif engine_type == "qwen3_tts":
+                # Import and create the Qwen3-TTS SRT processor using file-based import
+                qwen3_tts_srt_processor_path = os.path.join(nodes_dir, "qwen3_tts", "qwen3_tts_srt_processor.py")
+                qwen3_tts_srt_spec = importlib.util.spec_from_file_location("qwen3_tts_srt_processor_module", qwen3_tts_srt_processor_path)
+                qwen3_tts_srt_module = importlib.util.module_from_spec(qwen3_tts_srt_spec)
+                sys.modules["qwen3_tts_srt_processor_module"] = qwen3_tts_srt_module
+                qwen3_tts_srt_spec.loader.exec_module(qwen3_tts_srt_module)
+
+                Qwen3TTSSRTProcessor = qwen3_tts_srt_module.Qwen3TTSSRTProcessor
+
+                # Create a minimal wrapper node for the processor
+                class Qwen3TTSSRTWrapper:
+                    def __init__(self, config):
+                        self.config = config
+                        self.processor = Qwen3TTSSRTProcessor(self, config)
+
+                    def update_config(self, new_config):
+                        """Update configuration for both wrapper and processor"""
+                        self.config = new_config.copy()
+                        self.processor.update_config(new_config)
+
+                    def process_with_error_handling(self, func):
+                        """Error handling wrapper to match node interface"""
+                        try:
+                            return func()
+                        except Exception as e:
+                            raise e
+
+                    def format_audio_output(self, audio_tensor, sample_rate):
+                        """Format audio for ComfyUI output"""
+                        if audio_tensor.is_cuda:
+                            audio_tensor = audio_tensor.cpu()
+                        if audio_tensor.dim() == 1:
+                            audio_tensor = audio_tensor.unsqueeze(0).unsqueeze(0)
+                        elif audio_tensor.dim() == 2:
+                            audio_tensor = audio_tensor.unsqueeze(0)
+                        return {"waveform": audio_tensor, "sample_rate": sample_rate}
+
+                    def check_interrupt(self):
+                        """Check for interrupt signal"""
+                        if model_management.interrupt_processing:
+                            raise InterruptedError("Qwen3-TTS SRT processing interrupted by user")
+
+                engine_instance = Qwen3TTSSRTWrapper(config)
+                # Cache the instance with timestamp
+                import time
+                self._cached_engine_instances[cache_key] = {
+                    'instance': engine_instance,
+                    'timestamp': time.time()
+                }
+                return engine_instance
+
             else:
                 raise ValueError(f"Unknown engine type: {engine_type}")
                 
@@ -590,7 +656,25 @@ Hello! This is unified SRT TTS with character switching.
         """
         try:
             # Priority 1: opt_narrator input
+            # Check if opt_narrator is connected AND has valid content
+            valid_opt_narrator = False
+            
             if opt_narrator is not None:
+                # Check for empty/bypass input (might be a list/tuple from ComfyUI internals)
+                if isinstance(opt_narrator, (list, tuple)) and len(opt_narrator) == 0:
+                    valid_opt_narrator = False
+                # Check for specific dictionary content
+                elif isinstance(opt_narrator, dict) and ("audio" in opt_narrator or "waveform" in opt_narrator):
+                    valid_opt_narrator = True
+                else:
+                    # Some other non-empty input? Assume valid for now unless it breaks
+                    # If it's just "None" string or empty dict, treat as invalid
+                    if isinstance(opt_narrator, dict) and not opt_narrator:
+                        valid_opt_narrator = False
+                    else:
+                        valid_opt_narrator = True
+
+            if valid_opt_narrator:
                 # Check if it's a Character Voices node output (dict with specific keys)
                 if isinstance(opt_narrator, dict) and "audio" in opt_narrator:
                     # Character Voices node output
@@ -614,7 +698,8 @@ Hello! This is unified SRT TTS with character switching.
                     return None, audio_tensor, reference_text, character_name
             
             # Priority 2: narrator_voice dropdown (fallback)
-            elif narrator_voice != "none":
+            # This is now reached if opt_narrator is None OR invalid/empty (bypassed)
+            if narrator_voice != "none":
                 from utils.voice.discovery import load_voice_reference
                 audio_path, reference_text = load_voice_reference(narrator_voice)
                 
@@ -915,6 +1000,41 @@ Hello! This is unified SRT TTS with character switching.
 
             elif engine_type == "cosyvoice":
                 # Use the CosyVoice3 SRT processor from the wrapper instance
+                from utils.audio.processing import AudioProcessingUtils
+                voice_mapping = {}
+                if audio_tensor:
+                    voice_mapping['narrator'] = {
+                        'audio_path': AudioProcessingUtils.save_audio_to_temp_file(
+                            audio_tensor['waveform'],
+                            audio_tensor.get('sample_rate', 22050)
+                        ) if isinstance(audio_tensor, dict) and 'waveform' in audio_tensor else audio_tensor,
+                        'reference_text': reference_text if reference_text else ""
+                    }
+                elif audio_path:
+                    voice_mapping['narrator'] = {
+                        'audio_path': audio_path,
+                        'reference_text': reference_text if reference_text else ""
+                    }
+
+                # Prepare timing parameters
+                timing_params = {
+                    'fade_for_StretchToFit': fade_for_StretchToFit,
+                    'max_stretch_ratio': max_stretch_ratio,
+                    'min_stretch_ratio': min_stretch_ratio,
+                    'timing_tolerance': timing_tolerance
+                }
+
+                # Use the processor's main entry point
+                result = engine_instance.processor.process_srt_content(
+                    srt_content=srt_content,
+                    voice_mapping=voice_mapping,
+                    seed=seed,
+                    timing_mode=timing_mode,
+                    timing_params=timing_params
+                )
+
+            elif engine_type == "qwen3_tts":
+                # Use the Qwen3-TTS SRT processor from the wrapper instance
                 from utils.audio.processing import AudioProcessingUtils
                 voice_mapping = {}
                 if audio_tensor:

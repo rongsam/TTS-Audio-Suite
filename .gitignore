@@ -212,6 +212,13 @@ docs/Dev reports/CLAUDE_VERSION_MANAGEMENT_GUIDE.md
 .claude-code.json
 .claude/
 
+#codex
+*AGENTS.md
+AGENTS.md
+
+# Antigravity / agent configuration
+.agent/
+
 IgnoredForGitHubDocs/
 
 # Windows Zone.Identifier files
@@ -228,3 +235,6 @@ ignore/
 
 # Test output files
 tests/output/
+
+# TTS Audio Suite settings cache (user preferences)
+.inline_tag_settings_cache.json

@@ -5,6 +5,491 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [4.21.2] - 2026-02-14
+
+### Added
+
+- These engines auto-detect language from text and don't use language parameters
+
+### Changed
+
+- Console output is now cleaner when using VibeVoice or KugelAudio models
+
+### Fixed
+
+- Fix VibeVoice/KugelAudio console log spam
+
+### Removed
+
+- Remove misleading language auto-switching logs for VibeVoice and KugelAudio engines
+## [4.21.1] - 2026-02-13
+
+### Added
+
+- Ensure opt_narrator input is validated before overriding dropdown selection
+- Apply consistent fallback logic across all engines using Unified nodes
+
+### Fixed
+
+- Fix narrator fallback behavior in Unified TTS nodes
+- Fix issue where bypassing Character Voices node caused fallback to default 'David' voice
+## [4.21.0] - 2026-02-11
+
+### Added
+
+- Add KugelAudio-0-Open multilingual support via VibeVoice
+- **New Model Support**: Added full support for KugelAudio-0-Open localized model (~7GB)
+- **Voice Cloning**: Enable high-quality voice cloning with KugelAudio
+- **Seamless Integration**: Automatically detected via VibeVoice Engine node
+- **Improved Robustness**: Fixed import errors affecting some ComfyUI installations
+- **Documentation**: Updated all engine comparison tables and guides
+
+### Fixed
+
+- **Bug Fixes**: Resolved issue where model would speak 'Speaker 1:' tags
+## [4.20.21] - 2026-02-09
+
+### Added
+
+- Fixes remaining crashes on Mac (MPS) and CPU-only systems.
+
+### Fixed
+
+- Fix persistent 'Torch not compiled with CUDA' error in Step Audio EditX
+
+### Removed
+
+- Patched internal `auto_model.py` to remove hardcoded CUDA dependencies.
+## [4.20.20] - 2026-02-09
+
+### Changed
+
+- Improve device detection for non-CUDA systems
+
+### Fixed
+
+- Fix Mac compatibility for Step Audio EditX and ChatterBox VC
+- Fix 'Torch not compiled with CUDA' error on Mac (Step Audio EditX)
+- Fix serialization error when loading models on Mac (ChatterBox VC)
+## [4.20.19] - 2026-02-06
+
+### Added
+
+- Higgs Audio engine was incorrectly being passed to Step Audio EditX editor
+- Inline tags now properly load Step Audio EditX engine for editing operations
+
+### Fixed
+
+- Fix Higgs Audio SRT inline tag processing crash
+- Fix AttributeError when using inline edit tags with Higgs Audio in SRT mode
+## [4.20.18] - 2026-02-06
+
+### Added
+
+- Safe VRAM unloading now works properly - audio quality preserved
+- Simplified cleanup to only reset necessary flags, let engine handle recreation
+- Improved console output clarity - removed debug noise
+- Updated node tooltip to reflect safe CUDA graph management
+- CUDA graphs now auto-recreate properly without audio degradation
+
+### Fixed
+
+- Fix Higgs Audio CUDA graph crashes when clearing VRAM and reloading
+- Fix generation quality issues after model reload with CUDA graphs enabled
+## [4.20.17] - 2026-02-06
+
+### Added
+
+- Properly cleanup CUDA graph memory pools on unload
+- Allow safe model reloading while keeping CUDA graph optimizations
+
+### Fixed
+
+- Fix Qwen3-TTS Windows CUDA graph crashes on model reload
+- Fix crash when clearing VRAM with CUDA graphs enabled
+- Fix crash when switching between TTS Text and SRT nodes
+- Fix crash when changing model parameters after VRAM clear
+## [4.20.16] - 2026-02-05
+
+### Added
+
+- Speed up install when dependencies are already present
+- Reduce noisy reinstall checks in installer output
+
+### Fixed
+
+- Optimize installer dependency checks
+## [4.20.15] - 2026-02-05
+
+### Changed
+
+- Improve Windows embedded Python support
+
+### Fixed
+
+- Fix Step Audio EditX failing on Windows embedded Python
+- Fix distutils compatibility issue
+- TENTATIVE FIX - User testing required
+## [4.20.14] - 2026-02-05
+
+### Fixed
+
+- Fix ComfyUI compatibility for TTS engines
+- Fix crashes on ComfyUI 0.12+ when freeing memory with TTS models
+## [4.20.13] - 2026-02-04
+
+### Fixed
+
+- Fix onnxruntime-gpu installation failing in Docker environments
+- Fix GPU acceleration being disabled due to unnecessary CPU fallback installation
+- Improve compatibility with containerized environments (Docker, WSL)
+- Resolve issue where both onnxruntime and onnxruntime-gpu were installed, causing CPU-only operation
+## [4.20.12] - 2026-02-04
+
+### Added
+
+- Add advanced ASR SRT tuning options for edge cases
+
+### Changed
+
+- Improve ASR subtitles readability in ASR Transcribe
+- Improve subtitle grouping to avoid awkward splits in songs and questions
+- Improve ASR subtitle tooltips with clearer guidance
+## [4.20.11] - 2026-02-04
+
+### Fixed
+
+- Fix Qwen3-ASR compatibility with newer Transformers
+- Fix speech transcription crashes on transformers 4.57+
+## [4.20.10] - 2026-02-04
+
+### Added
+
+- Enable single-GPU inference on Windows AMD Radeon RX 9070 XT and similar GPUs
+
+### Fixed
+
+- Fix compatibility with Windows AMD ROCm 7.2 PyTorch builds
+- Fix all TTS engines crashing on Windows AMD systems with PyTorch 2.9.1+rocmsdk20260116
+- Resolve 'module torch.distributed has no attribute ReduceOp' errors
+- Automatically detect and patch incomplete torch.distributed implementations
+## [4.20.9] - 2026-02-04
+
+### Added
+
+- Step Audio EditX now works on Apple Silicon (MPS) and CPU
+
+### Changed
+
+- CUDA users unaffected (same performance and behavior)
+
+### Fixed
+
+- Add Step Audio EditX Mac (MPS) compatibility patch
+- Fix crash on Mac: 'Torch not compiled with CUDA enabled'
+- Centralized patch system in utils/compatibility/ for maintainability
+- Note: Tentative fix addressing issue #245 - requires Mac user testing
+## [4.20.8] - 2026-02-04
+
+### Added
+
+- Extend Qwen3-TTS torch.compile optimizations to Voice Designer
+- Voice Designer now inherits torch.compile settings from Qwen3-TTS Engine node
+- Enable via use_torch_compile parameter in connected Engine node
+- Supports all compile modes (default, reduce-overhead, max-autotune)
+
+### Changed
+
+- Significant performance improvement (~2x speedup: 4 it/s → 8.3 it/s confirmed)
+## [4.20.7] - 2026-02-04
+
+### Added
+
+- Credit: Timing improvement contributed by @rongsam
+
+### Changed
+
+- Improve SRT output to show actual audio duration
+
+### Fixed
+
+- Fix SRT timing accuracy for video editors
+- Fix timing drift in stretch_to_fit and pad_with_silence modes
+- Better compatibility with video editing software
+## [4.20.6] - 2026-02-03
+
+### Added
+
+- Add Refresh Voice Cache node for dynamic voice workflows
+- New ♻️ Refresh Voice Cache node for on-the-fly voice discovery
+- Support dual signal passthrough to guarantee execution order
+- Enable dynamic workflows where voices are created during execution
+
+### Fixed
+
+- Fix voice files created mid-workflow being unavailable to downstream nodes
+## [4.20.5] - 2026-02-03
+
+### Added
+
+- Changing torch.compile or cuda_graphs now properly reloads the model
+- Backward compatible - no changes needed in workflows
+
+### Fixed
+
+- Fix Qwen3-TTS torch.compile optimization not applying when toggled on
+- Fix optimization settings not taking effect after changing from off to on
+## [4.20.4] - 2026-02-03
+
+### Added
+
+- Backward compatible with ComfyUI 0.11.x and earlier
+
+### Fixed
+
+- Fix ComfyUI 0.12.0+ compatibility issue
+- Fix AttributeError: 'Qwen3TTSModel' object has no attribute 'is_dynamic'
+- Compatibility fix affects all TTS engines using ComfyUI model management
+## [4.20.3] - 2026-02-03
+
+### Changed
+
+- Improve FunASR model loading reliability
+
+### Fixed
+
+- Fix Step Audio EditX failing to load on some systems
+- Fix 'NoneType' object is not callable error
+- Better compatibility with Python 3.12+
+- TENTATIVE FIX - User testing required
+## [4.20.2] - 2026-02-02
+
+### Added
+
+- Add guidance for Transformers 5.x incompatibility (Qwen3-TTS)
+- Add a startup warning when Transformers 5.x is installed
+- Cap supported Transformers versions to <=4.57.3 for Qwen3-TTS stability
+- Add a public report on the Qwen3-TTS tokenizer incompatibility
+## [4.20.1] - 2026-01-31
+
+### Added
+
+- Add .agent/ directory to .gitignore for personal development tools
+
+### Changed
+
+- Improve cache validation to check both voice description and reference text before loading from disk
+
+### Fixed
+
+- Fix Qwen3-TTS Voice Designer caching issues and add voice refinement support
+- Fix Voice Designer loading stale audio when reference text changes but description stays same
+- Add overwrite_character toggle to enable voice refinement workflow (default: False for backward compatibility)
+## [4.20.0] - 2026-01-31
+
+### Added
+
+- Add Qwen3-ASR transcription with unified SRT output
+- New ASR Transcribe node with text, SRT, and word timestamps
+- Built-in subtitle readability presets and punctuation-aware SRT formatting
+- Automatic Qwen3-ASR downloads with forced aligner support
+- Faster experimentation via ASR result caching
+## [4.19.12] - 2026-01-30
+
+### Added
+
+- Add Qwen3-TTS torch.compile optimizations for 1.7x speedup
+- Add torch.compile support with ~1.7x faster generation (5 it/s → 8.5 it/s on RTX 4090)
+- Add optimization mode selection: default (Windows), reduce-overhead (Linux), max-autotune (Linux)
+- Add optional manual CUDA graph capture (minimal gain over torch.compile alone)
+- Add comprehensive optimization guide with tested benchmark results and requirements
+- Note: Optimizations disabled by default, Windows users should use compile_mode='default'
+- Based on streaming implementation by dffdeeq: https://github.com/dffdeeq/Qwen3-TTS-streaming
+
+### Fixed
+
+- Improve compatibility with PyTorch 2.10+ and triton-windows 3.6+ required for optimizations
+- Fix encoding errors in startup messages
+## [4.19.11] - 2026-01-30
+
+### Added
+
+- Properly respect user's attention mechanism choice (sdpa/eager/flash_attention_2)
+
+### Fixed
+
+- Fix Qwen3-TTS Voice Designer attention selection on AMD GPUs
+- Fix flash_attn import error when user selects sdpa attention
+- Fix config parameter extraction in Voice Designer node
+## [4.19.10] - 2026-01-29
+
+### Added
+
+- Increase Qwen3-TTS max_tokens range to 64-8192 (previously limited to 512-4096)
+- Add clear warning when x_vector_only mode is enabled with reference text available
+
+### Fixed
+
+- Fix Qwen3-TTS mode selection and Character Voices reference text handling
+- Fix Character Voices always using folder reference text when character is selected from dropdown (manual field now only for direct audio)
+- Fix Qwen3-TTS x_vector_only mode properly respecting engine widget setting when reference text is available
+- Fix Qwen3-TTS progress bar showing accurate progress (0-100%) instead of tiny percentages
+## [4.19.9] - 2026-01-29
+
+### Added
+
+- Audio inputs without transcript now properly use x_vector_only mode (lower quality but functional)
+
+### Changed
+
+- Update warning messages to clarify engine-specific behavior with direct audio input
+
+### Fixed
+
+- Fix Qwen3-TTS not using audio from opt_narrator input
+- Fix Qwen3-TTS falling back to default narrator when audio-only is connected to opt_narrator
+## [4.19.8] - 2026-01-28
+
+### Changed
+
+- Improve model lifecycle management for VoiceDesign↔Base switching
+
+### Fixed
+
+- Fix Qwen3-TTS crashes when switching between Voice Designer and TTS Text
+- Fix device mismatch errors (CPU/CUDA tensor conflicts)
+- Fix language dropdown selection being overridden by English
+- Better handling of cached processors with correct engine references
+## [4.19.7] - 2026-01-28
+
+### Added
+
+- Narrator segments now correctly use the selected language
+
+### Fixed
+
+- Fix Qwen3-TTS language selection being ignored
+- Fix language dropdown selection not applying to generation
+- Resolves issue where Spanish/other languages switched to English
+## [4.19.6] - 2026-01-28
+
+### Changed
+
+- Improve handling of different voice reference formats (file paths, tensors, audio dicts)
+
+### Fixed
+
+- Fix Qwen3-TTS voice cloning error with tensor references
+- Fix 'Boolean value of Tensor with more than one value is ambiguous' error when using voice references
+## [4.19.5] - 2026-01-28
+
+### Added
+
+- Add CosyVoice model variant setting (RL/standard) for <restore> tags in settings menu
+- Prevent unnecessary model reload when TTS and VC use the same variant
+
+### Changed
+
+- Improve device management to properly reload CosyVoice components after unload
+
+### Fixed
+
+- Fix CosyVoice voice restoration device errors and add variant setting
+- Fix "Expected all tensors to be on the same device" errors during CosyVoice <restore> tag processing
+## [4.19.4] - 2026-01-28
+
+### Changed
+
+- Improve audio tensor handling across all engines
+
+### Fixed
+
+- Fix F5-TTS restore tag voice conversion failures
+- Fix voice conversion crashes when using restore tags with F5-TTS
+- Better compatibility between different TTS engines and voice conversion
+## [4.19.3] - 2026-01-28
+
+### Added
+
+- CosyVoice VC now reuses existing TTS engine instance when available
+- Prevents model thrashing when using CosyVoice for both TTS and voice restoration
+- Significantly faster VC processing when TTS model already loaded
+
+### Fixed
+
+- Fix CosyVoice voice conversion causing model reload errors
+- Eliminates device mismatch errors (tensors on different devices)
+## [4.19.2] - 2026-01-28
+
+### Added
+
+- Add user-selectable voice conversion engine for <restore> tags
+- New ComfyUI settings menu: Voice Restoration (<restore> Tags)
+- Choose between ChatterBox 23-Lang (default), ChatterBox, or CosyVoice for voice restoration
+- Settings persist across ComfyUI restarts automatically
+- CosyVoice option enables native CosyVoice3 VC for seamless workflows
+- All engines support the same <restore> tag syntax with iteration control
+## [4.19.1] - 2026-01-28
+
+### Added
+
+- Add CosyVoice3 voice restoration support via <restore> tags
+- CosyVoice now supports <restore> tags for voice restoration using ChatterBox VC
+- Native CosyVoice paralinguistic tags (<breath>, <laughter>, <cough>, etc.) remain fully functional
+- Step Audio EditX emotion/style/speed tags are blocked to avoid conflicts with CosyVoice's native system
+- Voice restoration applies after TTS generation as post-processing step
+## [4.19.0] - 2026-01-28
+
+### Added
+
+- Add Qwen3-TTS engine with voice design capabilities
+- New Qwen3-TTS engine supporting 0.6B and 1.7B models
+- Three model types: CustomVoice (9 preset speakers), VoiceDesign (create voices from text descriptions), Base (zero-shot voice cloning)
+- Support for 10 languages (Chinese, English, Japanese, Korean, German, French, Russian, Portuguese, Spanish, Italian)
+- Voice Designer node creates custom voices from natural language descriptions
+- Full SRT subtitle support with character switching and all timing modes
+- Sage attention support for improved VRAM efficiency
+- Step Audio EditX inline edit tags for post-processing (emotions, styles, paralinguistic effects)
+- Auto-download system for all 6 model variants
+
+### Changed
+
+- Smart caching prevents duplicate voice generation
+## [4.18.0] - 2026-01-26
+
+### Added
+
+- Add VibeVoice Hindi community finetunes
+- Add vibevoice-hindi-1.5B support - Hindi-optimized 2.7B model
+- Add vibevoice-hindi-7B support - Hindi-optimized 9B model
+- Both models support Hindi and English languages
+- Auto-download from tarun7r HuggingFace repositories
+- Show download progress bars during model downloads
+## [4.17.0] - 2026-01-25
+
+### Added
+
+- Add ChatterBox Official 23-Lang Vietnamese community finetune
+- Add Vietnamese (Viterbox) support - community finetune with 24 languages total
+- Vietnamese model auto-downloads from dolly-vn/viterbox on first use
+- Select Vietnamese (Viterbox) from model version dropdown
+- Support for custom community finetunes with different vocab sizes
+
+### Changed
+
+- Expanded Vietnamese tokenization for better quality
+## [4.16.14] - 2026-01-24
+
+### Added
+
+- Add support for Apple Silicon Homebrew path (/opt/homebrew/lib)
+- Add support for Intel Mac Homebrew path (/usr/local/lib)
+
+### Fixed
+
+- Fix macOS install script failing on Apple Silicon with Homebrew
+- Fix dependency check not detecting Homebrew-installed libsamplerate and portaudio
+- Address issue #228
 ## [4.16.13] - 2026-01-21
 
 ### Fixed
