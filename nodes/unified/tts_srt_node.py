@@ -202,6 +202,15 @@ Hello! This is unified SRT TTS with character switching.
                 stable_params['use_cuda_graphs'] = config.get('use_cuda_graphs', False)
                 stable_params['compile_mode'] = config.get('compile_mode', 'default')
 
+            # For CosyVoice, include actual model identity and load options in cache key.
+            # RL and base variants share one folder but use different llm files, so
+            # model_path selection must invalidate the cached engine instance.
+            if engine_type == "cosyvoice":
+                stable_params['model_path'] = config.get('model_path', 'Fun-CosyVoice3-0.5B-RL')
+                stable_params['use_fp16'] = config.get('use_fp16', True)
+                stable_params['load_trt'] = config.get('load_trt', False)
+                stable_params['load_vllm'] = config.get('load_vllm', False)
+
             cache_key = f"{engine_type}_{hashlib.md5(str(sorted(stable_params.items())).encode()).hexdigest()[:8]}"
             
             # Check if we have a cached instance with the same stable configuration
@@ -445,6 +454,33 @@ Hello! This is unified SRT TTS with character switching.
                 }
                 return engine_instance
 
+            elif engine_type == "echo_tts":
+                echo_tts_srt_processor_path = os.path.join(nodes_dir, "echo_tts", "echo_tts_srt_processor.py")
+                echo_tts_srt_spec = importlib.util.spec_from_file_location("echo_tts_srt_processor_module", echo_tts_srt_processor_path)
+                echo_tts_srt_module = importlib.util.module_from_spec(echo_tts_srt_spec)
+                echo_tts_srt_spec.loader.exec_module(echo_tts_srt_module)
+
+                EchoTTSSRTProcessor = echo_tts_srt_module.EchoTTSSRTProcessor
+
+                class EchoTTSSRTWrapper:
+                    def __init__(self, config):
+                        self.config = config
+                        self.processor = EchoTTSSRTProcessor(self, config)
+
+                    def update_config(self, new_config):
+                        self.config = new_config.copy()
+                        self.processor.update_config(new_config)
+
+                engine_instance = EchoTTSSRTWrapper(config)
+
+                # Cache the instance with timestamp
+                import time
+                self._cached_engine_instances[cache_key] = {
+                    'instance': engine_instance,
+                    'timestamp': time.time()
+                }
+                return engine_instance
+
             elif engine_type == "vibevoice":
                 # Import and create the VibeVoice SRT processor using absolute import
                 vibevoice_srt_processor_path = os.path.join(nodes_dir, "vibevoice", "vibevoice_srt_processor.py")
@@ -575,6 +611,11 @@ Hello! This is unified SRT TTS with character switching.
                             audio_tensor = audio_tensor.unsqueeze(0)
                         return {"waveform": audio_tensor, "sample_rate": sample_rate}
 
+                    def check_interrupt(self):
+                        """Check for interrupt signal."""
+                        if model_management.interrupt_processing:
+                            raise InterruptedError("CosyVoice3 SRT processing interrupted by user")
+
                 engine_instance = CosyVoiceSRTWrapper(config)
                 # Cache the instance with timestamp
                 import time
@@ -655,6 +696,10 @@ Hello! This is unified SRT TTS with character switching.
             Tuple of (audio_path, audio_tensor, reference_text, character_name)
         """
         try:
+            # ComfyUI and switch nodes may wrap optional values in a single-item list/tuple.
+            while isinstance(opt_narrator, (list, tuple)) and len(opt_narrator) == 1:
+                opt_narrator = opt_narrator[0]
+
             # Priority 1: opt_narrator input
             # Check if opt_narrator is connected AND has valid content
             valid_opt_narrator = False
@@ -664,7 +709,11 @@ Hello! This is unified SRT TTS with character switching.
                 if isinstance(opt_narrator, (list, tuple)) and len(opt_narrator) == 0:
                     valid_opt_narrator = False
                 # Check for specific dictionary content
-                elif isinstance(opt_narrator, dict) and ("audio" in opt_narrator or "waveform" in opt_narrator):
+                elif isinstance(opt_narrator, dict) and (
+                    "audio" in opt_narrator or
+                    "waveform" in opt_narrator or
+                    opt_narrator.get("audio_path")
+                ):
                     valid_opt_narrator = True
                 else:
                     # Some other non-empty input? Assume valid for now unless it breaks
@@ -932,6 +981,32 @@ Hello! This is unified SRT TTS with character switching.
                     timing_params=timing_params
                 )
 
+            elif engine_type == "echo_tts":
+                # Echo-TTS SRT processing via processor
+                timing_params = {
+                    'fade_for_StretchToFit': fade_for_StretchToFit,
+                    'max_stretch_ratio': max_stretch_ratio,
+                    'min_stretch_ratio': min_stretch_ratio,
+                    'timing_tolerance': timing_tolerance
+                }
+
+                voice_mapping = {}
+                if audio_tensor:
+                    voice_mapping['narrator'] = {
+                        'audio': audio_tensor,
+                        'audio_path': audio_path,
+                        'reference_text': reference_text or ""
+                    }
+
+                result = engine_instance.processor.process_srt_content(
+                    srt_content=srt_content,
+                    voice_mapping=voice_mapping,
+                    seed=seed,
+                    timing_mode=timing_mode,
+                    timing_params=timing_params,
+                    enable_audio_cache=enable_audio_cache
+                )
+
             elif engine_type == "vibevoice":
                 # Use the VibeVoice SRT processor from the wrapper instance
                 voice_mapping = {"narrator": audio_tensor} if audio_tensor else {}
@@ -1008,12 +1083,14 @@ Hello! This is unified SRT TTS with character switching.
                             audio_tensor['waveform'],
                             audio_tensor.get('sample_rate', 22050)
                         ) if isinstance(audio_tensor, dict) and 'waveform' in audio_tensor else audio_tensor,
-                        'reference_text': reference_text if reference_text else ""
+                        'reference_text': reference_text if reference_text else "",
+                        'character_name': character_name if character_name else "narrator",
                     }
                 elif audio_path:
                     voice_mapping['narrator'] = {
                         'audio_path': audio_path,
-                        'reference_text': reference_text if reference_text else ""
+                        'reference_text': reference_text if reference_text else "",
+                        'character_name': character_name if character_name else "narrator",
                     }
 
                 # Prepare timing parameters
@@ -1102,6 +1179,9 @@ Hello! This is unified SRT TTS with character switching.
             return (audio_output, unified_info, timing_report, adjusted_srt)
                 
         except Exception as e:
+            # Bubble up pause tag + speaker KV incompatibility to trigger ComfyUI modal
+            if "Pause tags are not compatible with force_speaker_kv" in str(e):
+                raise
             error_msg = f"❌ TTS SRT generation failed: {e}"
             print(error_msg)
             import traceback

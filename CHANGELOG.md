@@ -5,6 +5,590 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [4.25.1] - 2026-04-05
+
+### Added
+
+- Move internal RVC training shim files into the engine package where they belong
+
+### Changed
+
+- Improve Windows RVC training stability without changing the user workflow
+
+### Fixed
+
+- Fix RVC training resume/runtime packaging on Windows
+- Fix RVC training child processes failing after the runtime shim cleanup
+## [4.25.0] - 2026-04-05
+
+### Added
+
+- Add integrated RVC model training workflow
+- Add dataset preparation, training config, and unified training nodes for RVC voice models
+- Add live RVC training dashboard with progress, ETA, and recent loss visualization
+- Add resume and continue-from-model support for longer RVC training sessions
+
+### Changed
+
+- Improve RVC model loading, index auto-detection, and training documentation
+## [4.24.20] - 2026-04-03
+
+### Changed
+
+- Improve F5-TTS fallback loading when automatic model download does not complete cleanly
+
+### Fixed
+
+- Address F5-TTS model loading issue
+- Fix F5-TTS failing to load bundled vocab files on some Windows custom-node installs
+- Prevent broken fallback paths that could stop F5-TTS Speech Editor workflows from starting
+## [4.24.19] - 2026-04-03
+
+### Fixed
+
+- Address Step Audio EditX Mac compatibility issue
+- Fix Step Audio EditX audio loading on fragile Mac and Python environments
+- Preserve existing Step Audio EditX audio preprocessing behavior while applying the compatibility fallback
+- Improve compatibility when EditX crashes with get_call_template errors before inference starts
+## [4.24.18] - 2026-04-03
+
+### Added
+
+- Add kugel-2 support in the VibeVoice engine
+
+### Changed
+
+- Improve VibeVoice and KugelAudio model support
+- Improve VibeVoice pause-tag logging so custom character switching shows split segments clearly
+- Update VibeVoice documentation and model source listings
+
+### Fixed
+
+- Fix VibeVoice Hindi model downloads by fetching tokenizer files from the correct source
+## [4.24.17] - 2026-04-01
+
+### Added
+
+- Add Library guide tabs for character tags, parameter tags, inline tags, and SRT editing
+
+### Changed
+
+- Improve Multiline TTS Tag Editor gutter spacing and Library browsing
+- Improve gutter spacing so line numbers use less wasted horizontal space
+- Improve guide readability by showing one reference section at a time inside the editor
+## [4.24.16] - 2026-04-01
+
+### Added
+
+- Keep gutter numbers aligned while scrolling and resizing long SRT files
+
+### Changed
+
+- Improve editor stability by using the rendered text rows instead of separate gutter measurements
+
+### Fixed
+
+- Fix Multiline TTS Tag Editor gutter alignment for wrapped subtitles
+- Fix line numbers drifting out of sync on wrapped subtitle text
+## [4.24.15] - 2026-04-01
+
+### Changed
+
+- Improve reliability when repeated pause tags appear across SRT cues
+
+### Fixed
+
+- Fix Multiline TTS Tag Editor tag highlighting with repeated subtitle tags
+- Fix some subtitle tags not highlighting correctly after editor updates
+- Fix internal marker artifacts leaking into the editor view
+## [4.24.14] - 2026-03-31
+
+### Added
+
+- Add merge controls for combining neighboring subtitle cues in the editor
+- Add split-at-caret support for breaking one subtitle into two timed cues
+- Add a dedicated Multiline TTS Tag Editor guide with SRT workflow notes
+
+### Changed
+
+- Improve Multiline TTS Tag Editor SRT editing and documentation
+- Improve in-editor and README documentation so the editor features are easier to discover
+## [4.24.13] - 2026-03-31
+
+### Added
+
+- Add draggable subtitle timing controls directly in the SRT editor
+- Keep adjacent subtitle gaps stable while adjusting linked timings
+- Keep the editor scrollbar from shifting text when focus changes
+
+### Changed
+
+- Improve Multiline TTS Tag Editor SRT timing editing and line alignment
+
+### Fixed
+
+- Fix line numbers drifting out of sync when long lines wrap
+## [4.24.12] - 2026-03-30
+
+### Added
+
+- Add SageAttention support for KugelAudio attention handling
+
+### Changed
+
+- Improve KugelAudio logging consistency with normal VibeVoice
+
+### Fixed
+
+- Fix VibeVoice KugelAudio engine settings being ignored
+- Fix KugelAudio 4-bit quantization not applying
+- Fix KugelAudio inference steps, top-p, and attention mode controls not working
+## [4.24.11] - 2026-03-29
+
+### Fixed
+
+- Fix Character Voices reload issues and CosyVoice model switching
+- Fix Character Voices failing to restore saved voices correctly after reopening workflows
+- Fix Character Voices preview player staying unavailable until reselecting the voice
+- Fix TTS generation still using the previous CosyVoice model after switching between 0.5B and 0.5B RL variants
+## [4.24.10] - 2026-03-28
+
+### Added
+
+- Add support for nested local layouts such as VibeVoice7b-low-vram/4bit
+
+### Changed
+
+- Improve VibeVoice quantized model loading stability
+
+### Fixed
+
+- Fix VibeVoice local custom model support
+- Fix local community and quantized VibeVoice folders not appearing in the model list
+- Fix VibeVoice startup import failures that could block generation until restart
+## [4.24.9] - 2026-03-28
+
+### Added
+
+- Expand SRT Advanced Options language profile coverage
+- Add heuristic defaults for Spanish, French, Italian, German, Dutch, Russian, Romanian, Indonesian, Malay, Turkish, Polish, Czech, Swedish, Danish, Finnish, and Greek
+
+### Changed
+
+- Improve Auto language matching so more ASR languages pick a sensible profile automatically
+- Update the SRT Advanced Options dropdown to prefill the new language-specific defaults
+## [4.24.8] - 2026-03-28
+
+### Added
+
+- Add reusable ASR timing JSON output so timings can be saved and reused without rerunning Qwen3 ASR
+
+### Changed
+
+- Improve Text to SRT Builder TTS-ready subtitle generation
+- Add TTS-ready subtitle mode for longer single-line cues that stop at better semantic boundaries
+- Add Portuguese (Brazil) heuristic defaults for cleaner subtitle chunking
+
+### Fixed
+
+- Fix awkward subtitle splits on connectors like de, da, do, na, and para
+
+### Removed
+
+- Remove the duplicate SRT Advanced Options node variant
+## [4.24.7] - 2026-03-27
+
+### Fixed
+
+- Fix CosyVoice3 narrator voice selection and interruption
+- Fix CosyVoice3 SRT and text generation using the wrong narrator reference in some workflows
+- Fix CosyVoice3 stop button handling during subtitle generation
+- Fix Qwen3-ASR stop button handling during long transcriptions
+- Improve connected Character Voices compatibility with unified narrator inputs
+## [4.24.6] - 2026-03-27
+
+### Added
+
+- Refresh Multiline TTS Tag Editor experience
+- Add redesigned editor layout with clearer controls and guided tabs
+- Expand inline restore guidance and tooltip help for easier use
+
+### Changed
+
+- Improve preset, history, and library workflows inside the node
+- Improve slider styling, tag highlighting, and overall editor polish
+## [4.24.5] - 2026-03-27
+
+### Changed
+
+- Better wrapper memory accounting for unload and reload paths
+
+### Fixed
+
+- Fix ComfyUI model wrapper crashes on newer ComfyUI versions
+- Fix RVC and CosyVoice3 workflows crashing during model unload
+- Improve shared TTS model compatibility with ComfyUI 0.18 memory management
+## [4.24.4] - 2026-03-19
+
+### Added
+
+- Reduce misleading startup warnings during background checks
+
+### Fixed
+
+- Fix background dependency checker false warnings
+- Fix TTS Audio Suite reporting some installed packages as missing
+- Improve dependency detection for heavy libraries like diffusers
+## [4.24.3] - 2026-03-18
+
+### Changed
+
+- Improve Portuguese language tag parsing for ChatterBox subtitle generation
+
+### Fixed
+
+- Fix ChatterBox SRT multiline subtitle handling and 23-Lang language tag switching
+- Fix Classic ChatterBox and ChatterBox Official 23-Lang skipping later lines in multiline SRT subtitles
+- Fix ChatterBox Official 23-Lang language-only tags like [pt:] not switching the tagged subtitle line
+## [4.24.2] - 2026-03-18
+
+### Added
+
+- Document control-tag-safe SRT building for TTS workflows
+
+### Changed
+
+- Improve Text to SRT Builder subtitle generation and documentation
+- Improve subtitle generation from edited transcripts and plain text workflows in the README
+
+### Fixed
+
+- Fix hyphenated words being formatted incorrectly in generated subtitles
+## [4.24.1] - 2026-03-17
+
+### Changed
+
+- Improve Multiline TTS Tag Editor undo, caret, and inline tag stability
+- Improve Multiline TTS Tag Editor keyboard undo and redo behavior so shortcuts now match the toolbar buttons
+
+### Fixed
+
+- Fix Multiline TTS Tag Editor caret jumps after undo, redo, toolbar inserts, and click repositioning in multiline subtitle content
+- Fix Multiline TTS Tag Editor inline tag deletion and broken tag editing from showing leaked EDIT_START or EDIT_END text in the editor
+- Fix Multiline TTS Tag Editor Ctrl or Cmd undo shortcuts so they edit text locally instead of undoing moved ComfyUI nodes
+## [4.24.0] - 2026-03-17
+
+### Added
+
+- Add modular ASR subtitle building and transcript cleanup tools
+- Add the standalone ASR Punctuation / Truecase helper node for low-punctuation transcripts such as Granite outputs
+- Add the new Text to SRT Builder workflow with separate subtitle construction controls and a modular ASR-to-SRT flow
+- Add updated Granite and Qwen3-ASR workflow examples, including the new Unified ✏️ ASR Transcribe + SRT Builder workflow
+
+### Changed
+
+- Improve subtitle readability with smarter cue splitting, better display balancing, and optional cue-end punctuation normalization
+- Improve README documentation and auto-generated model download tables to better reflect the current workflow setup
+## [4.23.0] - 2026-03-16
+
+### Added
+
+- Add Granite ASR as a second transcription engine in the unified ASR node
+- Add optional custom timestamps and SRT output for Granite via the reused Qwen aligner
+- Expose ASR translation target and prompt controls on Granite and Qwen engine nodes
+
+### Changed
+
+- Add Granite ASR engine and improve unified ASR workflows
+- Update README and engine comparison docs for the new ASR support
+
+### Fixed
+
+- Fix subtitle overflow so long lines split into new cues instead of losing words
+## [4.22.7] - 2026-03-13
+
+### Added
+
+- Keep audio loading and resampling working without extra startup overhead
+
+### Fixed
+
+- Fix Python 3.13 audio compatibility in IndexTTS-2 and ChatterBox Official 23-Lang
+- Fix Python 3.13 setups that could crash during reference voice processing
+- Improve compatibility with newer numba and librosa environments
+## [4.22.6] - 2026-03-13
+
+### Added
+
+- Restore the Voice Capture record button and proper input device dropdown
+- IndexTTS-2 works in our current Python 3.13 environment, so no engine changes were needed for now
+
+### Changed
+
+- Improve system default microphone selection and logging
+
+### Fixed
+
+- Fix Voice Capture sound initialization and input device handling
+- Fix Voice Capture blocking ComfyUI startup on some Windows audio setups
+## [4.22.5] - 2026-03-10
+
+### Added
+
+- Adjust ChatterBox Official 23-Lang Russian stress install flow
+- install the Russian stress support package during normal setup instead of mutating Python packages during generation
+- keep the large Russian dictionary as on-demand model data in the TTS folder
+- retain the safer Official 23-Lang Russian download path and clearer safetensors fallback messages
+## [4.22.4] - 2026-03-10
+
+### Added
+
+- Add lazy Russian stress setup so Official 23-Lang Russian no longer downloads large assets for every user during install
+- Download the Russian stress dictionary on demand into the normal TTS model folder
+
+### Fixed
+
+- Fix ChatterBox Official 23-Lang Russian stress support
+- Improve Russian generation setup on Python 3.13 by installing the patched stress-labeling dependency only when needed
+- Clarify Official 23-Lang safetensors fallback messages so working model folders no longer look broken
+## [4.22.3] - 2026-03-10
+
+### Fixed
+
+- Fix ChatterBox Official 23-Lang Python 3.13 generation failure
+- Fix Official 23-Lang failing after model download on Python 3.13 environments
+- Improve ChatterBox Official 23-Lang reference audio preprocessing compatibility
+## [4.22.2] - 2026-03-10
+
+### Fixed
+
+- Improve ChatterBox community model compatibility and Russian model handling
+- Fix ChatterBox local community models losing language-specific loading behavior
+- Fix stale ChatterBox model folders not redownloading newly added required files
+- Improve ChatterBox compatibility with community tokenizer variants
+- Remove the broken ChatterBox Russian classic Cyrillic experimental option from the dropdown
+## [4.22.1] - 2026-03-01
+
+### Added
+
+- Setting the env var has no effect once numba is already loaded by another node
+- Now forces numba to disable JIT via its internal config in all cases
+
+### Fixed
+
+- Fix Qwen3-TTS still crashing when NUMBA_DISABLE_JIT was already set
+- Fix voice cloning crash persisting even when NUMBA_DISABLE_JIT=1 was set in environment
+## [4.22.0] - 2026-03-01
+
+### Added
+
+- Add Echo-TTS voice cloning engine
+- New Echo-TTS engine: DiT-based voice cloning with reference audio support
+- Best quality at 30 seconds or less per generation; longer text auto-chunked
+- Force Speaker KV option controls speaker identity consistency across chunks
+- Full support for character switching, pause tags, and SRT subtitle timing
+- Auto-downloads models on first use (~7.1GB total into ComfyUI/models/TTS/)
+- Note: Echo-TTS weights are non-commercial (CC-BY-NC-SA license)
+
+### Fixed
+
+- Fix chunking not working when pause tags are present in Echo-TTS and Qwen3-TTS
+- Fix batch inline edit tags not applying correctly in SRT generation mode
+## [4.21.20] - 2026-02-28
+
+### Fixed
+
+- Fix Qwen3-TTS crash with numba 0.64.0 on certain hardware
+- Fix crash when using voice cloning on systems with numba 0.64.0 and NumPy 2.x
+- Error was silently ignored at startup so the incompatibility was never resolved
+- Startup now correctly detects and disables broken numba JIT compilation automatically
+## [4.21.19] - 2026-02-28
+
+### Added
+
+- All engines (Qwen3-TTS, IndexTTS-2, RVC, etc.) now correctly protected at startup
+
+### Fixed
+
+- Fix numba JIT compatibility test to correctly detect crashes on all affected hardware
+- Fix startup test that was not catching the Numba/librosa crash on some systems
+## [4.21.18] - 2026-02-28
+
+### Added
+
+- Engines like IndexTTS-2, Qwen3-TTS, RVC and others failed with AttributeError
+
+### Changed
+
+- No performance impact for users on NumPy 1.x
+
+### Fixed
+
+- Fix all engines crashing with Numba/librosa JIT error on NumPy 2.x
+- Fix crash affecting all TTS engines on NumPy 2.x with certain hardware
+- in librosa audio processing (get_call_template error)
+- Numba JIT compatibility is now correctly detected and disabled at startup
+## [4.21.17] - 2026-02-22
+
+### Added
+
+- Release v4.21.17
+
+### Fixed
+
+- Fix: Removed experimental Numba @guvectorize bypass that caused AttributeError crashes on fragile environments.
+## [4.21.16] - 2026-02-21
+
+### Added
+
+- Release v4.21.16
+
+### Fixed
+
+- Fix: Comprehensive fix for Numba @guvectorize crashes with Librosa on Python 3.12+ and NumPy 2.4+
+## [4.21.15] - 2026-02-21
+
+### Added
+
+- Release v4.21.15
+
+### Fixed
+
+- Fix: Librosa 0.11.0 compatibility fixes for missing utilities
+- Fix: ValueError unpacking error in IndexTTS-2
+## [4.21.14] - 2026-02-21
+
+### Added
+
+- Add in-node audio player with seek bar, scrub, and volume controls for selected Character Voices entries
+- Add quick voice preview playback for dropdown voices without running full TTS
+- Keep existing Character Voices workflows compatible with no input/output changes
+
+### Changed
+
+- Improve Character Voices voice preview controls
+
+### Fixed
+
+- Fix Character Voices source metadata reporting when direct input is used
+## [4.21.13] - 2026-02-21
+
+### Added
+
+- Add Egyptian Arabic (oddadmix) model support to ChatterBox 23L
+- Added new Egyptian Arabic community model 'oddadmix/chatterbox-egyptian-v0'
+
+### Fixed
+
+- Fixed 'Vocabulary Mismatch' errors by automatically handling official v2 tokenizer dependencies
+- Updated documentation tables and README with correct Egyptian flags and dialect notes
+## [4.21.12] - 2026-02-21
+
+### Fixed
+
+- Fix KaraFan FFmpeg detection crashes
+- Fix KaraFan node crashing when FFmpeg is not found in standard paths
+## [4.21.11] - 2026-02-20
+
+### Added
+
+- Resolved TypeError NoneType is not callable during ComfyUI GC and NameError for CHATTERBOX_VC_AVAILABLE in manager.py
+- Replaced lazy module evaluations using __getattr__ with explicit getters in manager.py
+- Fixed LoadedModel wrapper initializations in IndexTTS and RVC to include .real_model assignment
+- Added fallback explicit weak-ref assignment in model_manager.py to prevent NoneType exceptions
+## [4.21.10] - 2026-02-20
+
+### Added
+
+- Fixed crashes occurring on macOS and CPU-only devices during inference
+
+### Fixed
+
+- Fix Mac/MPS compatibility issues
+- Improved device compatibility across Step Audio EditX, RVC Engine, and VibeVoice engines
+## [4.21.9] - 2026-02-20
+
+### Added
+
+- Drastically reduce extension startup time
+
+### Changed
+
+- Optimize internal model loading for better initialization performance
+
+### Fixed
+
+- Fix ComfyUI slowing down during startup by making heavy AI modules load only when first requested
+- Improve dependency checking to instantly verify missing packages without freezing ComfyUI
+## [4.21.8] - 2026-02-20
+
+### Added
+
+- Clarify default auto-download characters and optional index pack
+
+### Changed
+
+- Improve RVC character pack links to direct dataset folders
+
+### Fixed
+
+- Fix ChatterBox 23L and RVC model download references
+- Fix ChatterBox 23L Vietnamese (Viterbox) source link
+## [4.21.7] - 2026-02-20
+
+### Added
+
+- The RVC Vocal Removal node (using KaraFan) now correctly respects the system PATH or ComfyUI environmental variables when looking for ffmpeg.
+
+### Fixed
+
+- Fix RVC Vocal Remover failing due to hardcoded ffmpeg path
+- This resolves an issue where vocal removal would fail on specific portable Windows installations even if ffmpeg was installed.
+## [4.21.6] - 2026-02-19
+
+### Added
+
+- Add Qwen3 integration + ASR example workflow
+- Document ICL mode requires reference audio + transcript for best quality
+- Document X-Vector mode uses audio only, no transcript needed
+
+### Changed
+
+- Add Qwen3-TTS + ASR example workflow and improve Qwen3-TTS documentation
+
+### Fixed
+
+- Clarify that Qwen3-TTS auto-selects and downloads the correct model
+- Fix: style instructions are ignored in Base (voice cloning) model — now clearly noted
+## [4.21.5] - 2026-02-18
+
+### Added
+
+- Qwen3-TTS now correctly regenerates audio when model size changes
+
+### Fixed
+
+- Fix Qwen3-TTS audio cache not invalidating when switching model sizes
+- Fix switching between 0.6B and 1.7B models returning stale cached audio
+## [4.21.4] - 2026-02-18
+
+### Changed
+
+- Update Qwen3-TTS default settings
+- Enable Qwen3 forced aligner by default for better ASR accuracy out-of-the-box
+- Update tooltip to explain VRAM usage and model download implications
+## [4.21.3] - 2026-02-17
+
+### Added
+
+- Backward compatible with older ComfyUI versions
+
+### Fixed
+
+- Fix crashes when using RVC or IndexTTS alongside diffusion nodes on ComfyUI 0.13+
+- Fix AttributeError crash when ComfyUI memory manager runs after RVC voice conversion
+- Fix AttributeError crash when ComfyUI memory manager runs after IndexTTS generation
+- Fix affected workflows: any mix of TTS and image/video generation nodes (Flux, Wan, etc.)
 ## [4.21.2] - 2026-02-14
 
 ### Added

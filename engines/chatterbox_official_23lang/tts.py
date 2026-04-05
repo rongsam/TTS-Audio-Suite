@@ -244,7 +244,7 @@ class ChatterboxOfficial23LangTTS:
         if model_name:
             is_complete, missing_files = validate_model_completeness(str(ckpt_dir), model_name, model_version)
             if not is_complete:
-                print(f"⚠️ Missing {model_version} files: {missing_files}")
+                print(f"⚠️ Model folder is incomplete for {model_version}: missing {missing_files}")
                 # Continue loading anyway - some files like conds.pt are optional
         
         with warnings.catch_warnings():
@@ -265,8 +265,8 @@ class ChatterboxOfficial23LangTTS:
                 ve_state = torch.load(ve_pt_path, map_location=map_location, weights_only=True)
                 ve.load_state_dict(ve_state)
             elif has_safetensors:
-                # User manually downloaded safetensors - use with compatibility warning
-                print("⚠️ Using ve.safetensors with strict=False for compatibility. Official implementation uses .pt files")
+                # Safetensors fallback is valid even though official releases usually ship .pt here.
+                print("ℹ️ Using ve.safetensors fallback (official releases usually ship ve.pt)")
                 ve_state = load_file(ve_safetensors_path, device=actual_device)
                 ve.load_state_dict(ve_state, strict=False)
             else:
@@ -274,8 +274,8 @@ class ChatterboxOfficial23LangTTS:
             
             ve.to(actual_device).eval()
 
-            # Normalize model_version for file lookups (Vietnamese (Viterbox) -> v2)
-            version_for_files = "v2" if model_version == "Vietnamese (Viterbox)" else model_version
+            # Normalize model_version for file lookups (Vietnamese / Egyptian -> v2)
+            version_for_files = "v2" if model_version in ["Vietnamese (Viterbox)", "Egyptian Arabic (oddadmix)"] else model_version
 
             # Load version-specific multilingual tokenizer FIRST to get vocab size
             print("📦 Loading multilingual tokenizer...")
@@ -287,15 +287,27 @@ class ChatterboxOfficial23LangTTS:
                 if candidate_path.exists():
                     tokenizer_path = candidate_path
                 else:
-                    # Try Vietnamese-expanded tokenizer (community finetunes)
-                    candidate_path = ckpt_dir / "tokenizer_vi_expanded.json"
-                    if candidate_path.exists():
-                        print("🌐 Using Vietnamese-expanded tokenizer")
-                        tokenizer_path = candidate_path
-                    else:
-                        # Fallback to v1 tokenizer
-                        print("⚠️ v2 tokenizer not found, falling back to v1 tokenizer")
-                        tokenizer_path = ckpt_dir / "mtl_tokenizer.json"
+                    # FALLBACK: Check official folder for v2 tokenizer (community fine-tunes often omit it)
+                    # Use absolute path reconstruction to find the official folder
+                    try:
+                        official_dir = os.path.join(os.path.dirname(str(ckpt_dir)), "Official 23-Lang")
+                        official_candidate = Path(official_dir) / "grapheme_mtl_merged_expanded_v1.json"
+                        if official_candidate.exists():
+                            print("🌐 Using official v2 enhanced tokenizer fallback")
+                            tokenizer_path = official_candidate
+                    except:
+                        pass
+
+                    if not tokenizer_path:
+                        # Try Vietnamese-expanded tokenizer (community finetunes)
+                        candidate_path = ckpt_dir / "tokenizer_vi_expanded.json"
+                        if candidate_path.exists():
+                            print("🌐 Using Vietnamese-expanded tokenizer")
+                            tokenizer_path = candidate_path
+                        else:
+                            # Fallback to v1 tokenizer
+                            print("⚠️ v2 enhanced tokenizer not found, falling back to mtl_tokenizer.json")
+                            tokenizer_path = ckpt_dir / "mtl_tokenizer.json"
             else:
                 # v1 model - try standard tokenizer
                 tokenizer_path = ckpt_dir / "mtl_tokenizer.json"
@@ -317,6 +329,7 @@ class ChatterboxOfficial23LangTTS:
             # - Official v1: t3_23lang.safetensors
             # - Official v2: t3_mtl23ls_v2.safetensors
             # - Vietnamese Viterbox: t3_ml24ls_v2.safetensors
+            # - Egyptian Arabic: t3_mtl23ls_v2.safetensors
             # - Future variants: any t3_*.safetensors
             t3_path = None
             if version_for_files == "v2":
@@ -367,8 +380,8 @@ class ChatterboxOfficial23LangTTS:
                 s3gen_state = torch.load(s3gen_pt_path, map_location=map_location, weights_only=True)
                 s3gen.load_state_dict(s3gen_state)
             elif has_safetensors:
-                # User manually downloaded safetensors - use with compatibility warning
-                print("⚠️ Using s3gen.safetensors with strict=False for compatibility. Official implementation uses .pt files")
+                # Safetensors fallback is valid even though official releases usually ship .pt here.
+                print("ℹ️ Using s3gen.safetensors fallback (official releases usually ship s3gen.pt)")
                 s3gen_state = load_file(s3gen_safetensors_path, device=actual_device)
                 s3gen.load_state_dict(s3gen_state, strict=False)
             else:
@@ -533,8 +546,8 @@ class ChatterboxOfficial23LangTTS:
         model_format = model_config.get("format", "pt")
 
         # Normalize model_version for file lookups
-        # "Vietnamese (Viterbox)" is treated as v2 for file requirements
-        version_for_files = "v2" if model_version == "Vietnamese (Viterbox)" else model_version
+        # "Vietnamese (Viterbox)" and "Egyptian Arabic (oddadmix)" are treated as v2 for file requirements
+        version_for_files = "v2" if model_version in ["Vietnamese (Viterbox)", "Egyptian Arabic (oddadmix)"] else model_version
 
         # Silent loading unless errors occur
 

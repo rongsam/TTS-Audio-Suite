@@ -10,9 +10,21 @@ import random
 import torch
 import torch.utils.data
 import numpy as np
-from librosa.util import normalize
+
+# TTS Audio Suite Patch: librosa 0.11.0 compatibility for removed generic utilities
+try:
+    from librosa.util import normalize
+except Exception:
+    def normalize(S):
+        max_val = np.max(np.abs(S))
+        if max_val > 0:
+            return S / max_val
+        return S
 from scipy.io.wavfile import read
-from librosa.filters import mel as librosa_mel_fn
+try:
+    from librosa.filters import mel as librosa_mel_fn
+except Exception:
+    from utils.audio.librosa_fallback import safe_mel_filters as librosa_mel_fn
 import pathlib
 from tqdm import tqdm
 

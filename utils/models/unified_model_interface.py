@@ -113,6 +113,14 @@ class UnifiedModelInterface:
         # Check PyTorch consistency on first model load
         self._check_pytorch_consistency()
 
+        # Apply transformers compatibility patches
+        try:
+            import __init__ as tts_suite_init
+            if hasattr(tts_suite_init, "_apply_transformers_patches_once"):
+                tts_suite_init._apply_transformers_patches_once()
+        except ImportError:
+            pass
+
         # Generate unique cache key
         cache_key = self._generate_cache_key(config)
 
@@ -260,6 +268,37 @@ class UnifiedModelInterface:
 unified_model_interface = UnifiedModelInterface()
 
 
+def _resolve_torch_dtype(precision: str):
+    precision = (precision or "auto").lower()
+    dtype_map = {
+        "bf16": torch.bfloat16,
+        "bfloat16": torch.bfloat16,
+        "fp16": torch.float16,
+        "float16": torch.float16,
+        "fp32": torch.float32,
+        "float32": torch.float32,
+    }
+    if precision in dtype_map:
+        return dtype_map[precision]
+
+    if torch.cuda.is_available():
+        major, _minor = torch.cuda.get_device_capability()
+        return torch.bfloat16 if major >= 8 else torch.float16
+    return torch.float32
+
+
+def _sanitize_loader_settings(device: str, torch_dtype, attn_implementation: str):
+    resolved_attn = "sdpa" if attn_implementation in ("auto", None, "") else attn_implementation
+
+    if str(device) == "cpu":
+        if torch_dtype == torch.float16:
+            torch_dtype = torch.float32
+        if resolved_attn == "flash_attention_2":
+            resolved_attn = "sdpa"
+
+    return torch_dtype, resolved_attn
+
+
 # Convenience functions for common model operations
 def load_tts_model(engine_name: str, 
                    model_name: str, 
@@ -360,7 +399,7 @@ def register_chatterbox_factory():
         # Try provided path first
         if model_path:
             try:
-                return target_class.from_local(model_path, device)
+                return target_class.from_local(model_path, device, language)
             except Exception as e:
                 print(f"⚠️ Failed to load from provided path {model_path}: {e}")
                 # Continue to fallback logic
@@ -369,7 +408,7 @@ def register_chatterbox_factory():
         try:
             local_path = find_local_model_path(language)
             if local_path:
-                return target_class.from_local(local_path, device)
+                return target_class.from_local(local_path, device, language)
         except Exception as e:
             print(f"⚠️ Failed to load local {language} model: {e}")
         
@@ -392,7 +431,7 @@ def register_chatterbox_factory():
                     try:
                         german_local = find_local_model_path("German")
                         if german_local:
-                            return target_class.from_local(german_local, device)
+                            return target_class.from_local(german_local, device, "German")
                     except Exception as local_error:
                         print(f"⚠️ German local model failed: {local_error}")
                         
@@ -411,7 +450,7 @@ def register_chatterbox_factory():
                     # Try English local first
                     english_local = find_local_model_path("English")
                     if english_local:
-                        return target_class.from_local(english_local, device)
+                        return target_class.from_local(english_local, device, "English")
                     else:
                         return target_class.from_pretrained(device, "English")
                 except Exception as english_error:
@@ -630,7 +669,7 @@ def register_vibevoice_factory():
         except ImportError as e:
             print(f"⚠️ Unified Interface: accelerate not available: {e}")
 
-        from engines.vibevoice_engine.vibevoice_engine import VibeVoiceEngine
+        from engines.vibevoice_engine import VibeVoiceEngine
 
         # Extract parameters
         model_name = config.model_name or "vibevoice-1.5B"
@@ -773,6 +812,7 @@ def register_chatterbox_23lang_factory():
 
         # Get model directory path - use model_name for the directory
         # For "Vietnamese (Viterbox)", this will be "Vietnamese (Viterbox)"
+        # For "Egyptian Arabic (oddadmix)", this will be "Egyptian Arabic (oddadmix)"
         # For "ChatterBox Official 23-Lang", this will be "ChatterBox Official 23-Lang"
         models_dir = folder_paths.models_dir
         # Strip "ChatterBox " prefix for directory structure consistency
@@ -1023,6 +1063,100 @@ def register_step_audio_editx_factory():
             raise RuntimeError(f"Failed to load Step Audio EditX model: {e}")
 
     unified_model_interface.register_model_factory("step_audio_editx", "tts", step_audio_editx_factory)
+
+
+def register_echo_tts_factory():
+    """Register Echo-TTS model factory"""
+    def echo_tts_factory(config: ModelLoadConfig):
+        """Factory for Echo-TTS models with ComfyUI integration"""
+        import os
+        import torch
+        from huggingface_hub import hf_hub_download
+        from utils.models.extra_paths import get_preferred_download_path
+        from utils.device import resolve_torch_device
+
+        from echo_tts.inference import (
+            load_model_from_hf,
+            load_fish_ae_from_hf,
+            load_pca_state_from_hf,
+            sample_pipeline,
+        )
+
+        model_id = config.model_name or "jordand/echo-tts-base"
+        device = resolve_torch_device(config.device or "auto")
+
+        # Ensure HF downloads land under ComfyUI/models/TTS/<model name>
+        base_dir = get_preferred_download_path("TTS")
+        os.makedirs(base_dir, exist_ok=True)
+        model_name = model_id.split("/")[-1]
+
+        def _hf_download(repo_id: str, filename: str) -> None:
+            repo_dir = os.path.join(base_dir, repo_id.split("/")[-1])
+            os.makedirs(repo_dir, exist_ok=True)
+            hf_hub_download(
+                repo_id=repo_id,
+                filename=filename,
+                local_dir=repo_dir,
+                local_dir_use_symlinks=False,
+            )
+
+        # Download required files into ComfyUI models dir
+        _hf_download(model_id, "pytorch_model.safetensors")
+        _hf_download(model_id, "pca_state.safetensors")
+        _hf_download("jordand/fish-s1-dac-min", "pytorch_model.safetensors")
+
+        model_dtype = torch.bfloat16 if device == "cuda" else torch.float32
+
+        model = load_model_from_hf(
+            repo_id=model_name,
+            device=device,
+            dtype=model_dtype,
+            model_path=base_dir,
+        )
+
+        ae = load_fish_ae_from_hf(
+            repo_id="fish-s1-dac-min",
+            device=device,
+            dtype=model_dtype,
+            model_path=base_dir,
+        )
+
+        pca_state = load_pca_state_from_hf(
+            repo_id=model_name,
+            device=device,
+            model_path=base_dir,
+        )
+
+        class EchoTTSModelBundle:
+            def __init__(self, model, ae, pca_state, sample_pipeline, device):
+                self.model = model
+                self.ae = ae
+                self.pca_state = pca_state
+                self.sample_pipeline = sample_pipeline
+                self.device = device
+
+            def to(self, target_device):
+                if hasattr(self.model, "to"):
+                    self.model = self.model.to(target_device)
+                if hasattr(self.ae, "to"):
+                    self.ae = self.ae.to(target_device)
+                # pca_state is a dict of tensors loaded under inference_mode.
+                # Clone before moving to escape inference-tensor version tracking errors
+                # after ComfyUI "Unload Models" / VRAM clear cycles.
+                if isinstance(self.pca_state, dict):
+                    self.pca_state = {
+                        k: v.clone().to(target_device) if isinstance(v, torch.Tensor) else v
+                        for k, v in self.pca_state.items()
+                    }
+                elif hasattr(self.pca_state, "to"):
+                    self.pca_state = self.pca_state.to(target_device)
+                self.device = target_device
+                return self
+
+        print(f"✅ Echo-TTS model '{model_name}' loaded via unified interface")
+        return EchoTTSModelBundle(model, ae, pca_state, sample_pipeline, device)
+
+    unified_model_interface.register_model_factory("echo_tts", "tts", echo_tts_factory)
 
 
 def register_cosyvoice_factory():
@@ -1301,8 +1435,6 @@ def register_qwen3_asr_factory():
     """Register Qwen3-ASR model factory"""
     def qwen3_asr_factory(config: ModelLoadConfig):
         """Factory for Qwen3-ASR models with ComfyUI integration"""
-        import torch
-
         model_name = config.model_name or "Qwen3-ASR-1.7B"
         model_path = config.model_path or model_name
         device = config.device or "auto"
@@ -1318,22 +1450,11 @@ def register_qwen3_asr_factory():
         downloader = Qwen3ASRDownloader()
         resolved_model_path = downloader.resolve_model_path(model_path)
 
-        dtype_map = {
-            "bf16": torch.bfloat16,
-            "fp16": torch.float16,
-            "fp32": torch.float32,
-        }
-        if precision in dtype_map:
-            torch_dtype = dtype_map[precision]
-        else:
-            if torch.cuda.is_available():
-                major, _minor = torch.cuda.get_device_capability()
-                torch_dtype = torch.bfloat16 if major >= 8 else torch.float16
-            else:
-                torch_dtype = torch.float32
+        torch_dtype = _resolve_torch_dtype(precision)
 
         if device == "auto":
             device = "cuda" if torch.cuda.is_available() else "cpu"
+        torch_dtype, attn_implementation = _sanitize_loader_settings(device, torch_dtype, attn_implementation)
 
         try:
             from qwen_asr import Qwen3ASRModel
@@ -1376,12 +1497,140 @@ def register_qwen3_asr_factory():
     unified_model_interface.register_model_factory("qwen3_asr", "asr", qwen3_asr_factory)
 
 
+def register_qwen3_aligner_factory():
+    """Register standalone Qwen3 forced aligner factory."""
+
+    def qwen3_aligner_factory(config: ModelLoadConfig):
+        model_name = config.model_name or "Qwen3-ForcedAligner-0.6B"
+        model_path = config.model_path or model_name
+        device = config.device or "auto"
+
+        additional_params = config.additional_params or {}
+        precision = additional_params.get("precision", "auto")
+        attn_implementation = additional_params.get("attn_implementation", "sdpa")
+
+        from engines.qwen3_tts.qwen3_asr_downloader import Qwen3ASRDownloader
+        downloader = Qwen3ASRDownloader()
+        resolved_model_path = downloader.resolve_model_path(model_path)
+
+        torch_dtype = _resolve_torch_dtype(precision)
+
+        if device == "auto":
+            device = "cuda" if torch.cuda.is_available() else "cpu"
+        torch_dtype, resolved_attn = _sanitize_loader_settings(device, torch_dtype, attn_implementation)
+
+        try:
+            from qwen_asr import Qwen3ForcedAligner
+        except ImportError:
+            try:
+                import sys
+                import os
+                qwen3_asr_impl = os.path.join(os.path.dirname(__file__), "..", "..", "engines", "qwen3_asr", "impl")
+                qwen3_asr_impl = os.path.abspath(qwen3_asr_impl)
+                if qwen3_asr_impl not in sys.path:
+                    sys.path.insert(0, qwen3_asr_impl)
+                from qwen_asr import Qwen3ForcedAligner
+            except Exception as e:
+                raise ImportError(f"Qwen3 forced aligner dependency not available. Error: {e}")
+
+        print(f"🔄 Loading Qwen3 forced aligner: {model_name}")
+        print(f"   Path: {resolved_model_path}")
+        print(f"   Device: {device} | Dtype: {torch_dtype} | Attention: {resolved_attn}")
+
+        aligner = Qwen3ForcedAligner.from_pretrained(
+            resolved_model_path,
+            device_map=device,
+            dtype=torch_dtype,
+            attn_implementation=resolved_attn,
+        )
+        print(f"✅ Qwen3 forced aligner '{model_name}' loaded successfully")
+        return aligner
+
+    unified_model_interface.register_model_factory("qwen3_asr", "aligner", qwen3_aligner_factory)
+
+
+def register_granite_asr_factory():
+    """Register Granite ASR model factory."""
+
+    def granite_asr_factory(config: ModelLoadConfig):
+        from packaging import version
+        import transformers
+        from transformers import AutoModelForSpeechSeq2Seq, AutoProcessor
+
+        if version.parse(transformers.__version__) < version.parse("4.52.1"):
+            raise RuntimeError(
+                f"Granite ASR requires transformers>=4.52.1, found {transformers.__version__}"
+            )
+
+        model_name = config.model_name or "granite-4.0-1b-speech"
+        model_path = config.model_path or model_name
+        device = config.device or "auto"
+
+        additional_params = config.additional_params or {}
+        precision = additional_params.get("precision", "auto")
+        attn_implementation = additional_params.get("attn_implementation", "auto")
+
+        from engines.granite_asr.granite_asr_downloader import GraniteASRDownloader
+        from engines.granite_asr.runtime import GraniteASRRuntime
+
+        downloader = GraniteASRDownloader()
+        resolved_model_path = downloader.resolve_model_path(model_path)
+
+        torch_dtype = _resolve_torch_dtype(precision)
+
+        if device == "auto":
+            device = "cuda" if torch.cuda.is_available() else "cpu"
+        torch_dtype, resolved_attn = _sanitize_loader_settings(device, torch_dtype, attn_implementation)
+
+        print(f"🔄 Loading Granite ASR: {model_name}")
+        print(f"   Path: {resolved_model_path}")
+        print(f"   Device: {device} | Dtype: {torch_dtype} | Attention: {resolved_attn}")
+
+        processor = AutoProcessor.from_pretrained(resolved_model_path)
+
+        def _load_granite_model(attn_impl: str):
+            return AutoModelForSpeechSeq2Seq.from_pretrained(
+                resolved_model_path,
+                device_map=device,
+                dtype=torch_dtype,
+                attn_implementation=attn_impl,
+            )
+
+        try:
+            model = _load_granite_model(resolved_attn)
+        except Exception as e:
+            error_text = str(e)
+            needs_eager_fallback = (
+                resolved_attn != "eager"
+                and "Blip2QFormerModel does not support an attention implementation" in error_text
+            )
+            if not needs_eager_fallback:
+                raise
+
+            print(
+                f"⚠️ Granite ASR attention backend '{resolved_attn}' is not supported by the bundled BLIP2 Q-Former in this transformers build."
+            )
+            print("   Falling back to eager attention for Granite ASR.")
+            model = _load_granite_model("eager")
+
+        runtime = GraniteASRRuntime(
+            model=model,
+            processor=processor,
+            device=device,
+        )
+        print(f"✅ Granite ASR model '{model_name}' loaded successfully")
+        return runtime
+
+    unified_model_interface.register_model_factory("granite_asr", "asr", granite_asr_factory)
+
+
 def initialize_all_factories():
     """Initialize all model factories"""
     register_chatterbox_factory()
     register_chatterbox_23lang_factory()
     register_f5tts_factory()
     register_step_audio_editx_factory()
+    register_echo_tts_factory()
     register_higgs_audio_factory()
     register_rvc_factory()
     register_vibevoice_factory()
@@ -1389,6 +1638,8 @@ def initialize_all_factories():
     register_cosyvoice_factory()
     register_qwen3_tts_factory()
     register_qwen3_asr_factory()
+    register_qwen3_aligner_factory()
+    register_granite_asr_factory()
 
 
 # Auto-initialize on import

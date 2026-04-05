@@ -49,59 +49,45 @@ try:
 except Exception as e:
     print(f"⚠️ Warning: Could not apply PyTorch patches: {e}")
 
-# Apply transformers compatibility patches
-try:
-    # Load transformers_patches directly by file path
-    transformers_patches_path = os.path.join(os.path.dirname(__file__), "utils", "compatibility", "transformers_patches.py")
-    spec = importlib.util.spec_from_file_location("transformers_patches_module", transformers_patches_path)
-    transformers_patches_module = importlib.util.module_from_spec(spec)
-    spec.loader.exec_module(transformers_patches_module)
+# Transformers compatibility patches DEFERRED to first engine use.
+# The patches module is deprecated (all patches are for old transformers versions),
+# and importing it eagerly pulls in transformers (~1.3s).
+# Patches will be applied lazily when an engine first imports transformers.
+_transformers_patches_applied = False
+def _apply_transformers_patches_once():
+    """Apply transformers patches lazily, on first engine use."""
+    global _transformers_patches_applied
+    if _transformers_patches_applied:
+        return
+    _transformers_patches_applied = True
+    try:
+        transformers_patches_path = os.path.join(os.path.dirname(__file__), "utils", "compatibility", "transformers_patches.py")
+        spec = importlib.util.spec_from_file_location("transformers_patches_module", transformers_patches_path)
+        transformers_patches_module = importlib.util.module_from_spec(spec)
+        spec.loader.exec_module(transformers_patches_module)
+        transformers_patches_module.apply_transformers_patches(verbose=True)
+    except Exception as e:
+        print(f"⚠️ Warning: Could not apply Transformers patches: {e}")
 
-    # Apply the patches (will only apply on transformers 4.54+, silently skip on older versions)
-    transformers_patches_module.apply_transformers_patches(verbose=True)
-except Exception as e:
-    print(f"⚠️ Warning: Could not apply Transformers patches: {e}")
-
-# Smart Numba Compatibility System - tests and applies fixes only when needed
-try:
-    # Load numba_compat directly by file path to avoid package import issues
-    numba_compat_path = os.path.join(os.path.dirname(__file__), "utils", "compatibility", "numba_compat.py")
-    spec = importlib.util.spec_from_file_location("numba_compat_module", numba_compat_path)
-    numba_compat_module = importlib.util.module_from_spec(spec)
-    spec.loader.exec_module(numba_compat_module)
-
-    # Apply smart compatibility setup (fast startup test)
-    compatibility_results = numba_compat_module.setup_numba_compatibility(quick_startup=True, verbose=False)
-except Exception:
-    # Fallback to simple approach if compatibility module not found
-    import sys
-    import os
-    if sys.version_info >= (3, 13):
-        # Basic test: try librosa.stft and apply workaround if it fails
-        try:
-            import numpy as np
-            import librosa
-            test_audio = np.random.randn(512).astype(np.float32)
-            _ = librosa.stft(test_audio, hop_length=256, n_fft=512)
-            # Only show when there's a problem, not success
-            # Mark that we've tested numba compatibility
-            import sys
-            sys.modules['__main__']._tts_numba_tested = True
-        except Exception as e:
-            if "'function' object has no attribute 'get_call_template'" in str(e):
-                os.environ['NUMBA_DISABLE_JIT'] = '1'
-                os.environ['NUMBA_ENABLE_CUDASIM'] = '1'
-                try:
-                    import numba
-                    numba.config.DISABLE_JIT = True
-                except ImportError:
-                    pass
-                print("🔧 Applied numba JIT workaround for Python 3.13 compatibility")
-            else:
-                print(f"⚠️ Librosa test failed with different error: {e}")
-    else:
-        # Only show warning when JIT is disabled (indicates a problem)
-        pass
+# Numba/Librosa compatibility check at startup.
+# Do NOT force NUMBA_DISABLE_JIT on Python 3.13 anymore:
+# newer stacks (for example numba 0.64 + librosa 0.11) can work normally,
+# and forcing the env var can itself trigger the get_call_template crash.
+# For older Python + NumPy 2.x, keep the existing thorough compatibility test.
+if sys.version_info < (3, 13):
+    try:
+        import numpy as _np
+        if int(_np.__version__.split('.')[0]) >= 2:
+            numba_compat_path = os.path.join(os.path.dirname(__file__), "utils", "compatibility", "numba_compat.py")
+            _spec = importlib.util.spec_from_file_location("numba_compat_module", numba_compat_path)
+            _numba_compat = importlib.util.module_from_spec(_spec)
+            _spec.loader.exec_module(_numba_compat)
+            _numba_compat.setup_numba_compatibility(quick_startup=False, verbose=True)
+    except Exception:
+        # If the compatibility test itself crashes, that means numba JIT is broken —
+        # disable it and warn the user.
+        os.environ['NUMBA_DISABLE_JIT'] = '1'
+        print("⚠️ TTS Audio Suite: Numba JIT crash detected at startup — disabling JIT (NUMBA_DISABLE_JIT=1)")
 
 # TorchCodec note: Removed torchcodec dependency to eliminate FFmpeg system requirement
 # torchaudio.load() works fine with fallback backends (soundfile, scipy)
@@ -109,9 +95,37 @@ import warnings
 import sys
 import os
 
+def check_dependencies():
+    """Fast check for critical dependencies without importing them into memory"""
+    critical_packages = ['torch', 'torchaudio', 'transformers', 'librosa', 'numba', 'soundfile', 'accelerate']
+    missing = []
+    
+    for pkg in critical_packages:
+        # Avoid importlib.util.find_spec for namespace packages or if spec is None
+        try:
+            if importlib.util.find_spec(pkg) is None:
+                missing.append(pkg)
+        except Exception:
+            missing.append(pkg)
+
+    if missing:
+        print(f"\n{'='*80}")
+        print(f"⚠️  TTS AUDIO SUITE: CRITICAL DEPENDENCIES MISSING ⚠️")
+        print(f"{'='*80}")
+        print(f"The following required packages are missing: {', '.join(missing)}")
+        print(f"")
+        print(f"Please run the installation script or install them manually:")
+        print(f"pip install -r requirements.txt")
+        print(f"{'='*80}\n")
+
 # Version disclosure for troubleshooting
 def print_critical_versions():
-    """Print versions of critical packages for troubleshooting"""
+    """Print versions of critical packages for troubleshooting.
+
+    Uses importlib.metadata to read versions without importing the actual
+    packages. This avoids pulling in transformers (~1.3s), librosa (~0.7s),
+    and other heavy modules just to print a version string at startup.
+    """
     critical_packages = [
         ('numpy', 'NumPy'),
         ('librosa', 'Librosa'),
@@ -123,21 +137,31 @@ def print_critical_versions():
         ('soundfile', 'SoundFile'),
     ]
 
+    from importlib.metadata import version as _pkg_version, PackageNotFoundError
+
     version_info = []
     for pkg_name, display_name in critical_packages:
         try:
-            module = __import__(pkg_name)
-            version = getattr(module, '__version__', 'unknown')
-            version_info.append(f"{display_name} {version}")
-        except ImportError:
+            ver = _pkg_version(pkg_name)
+            version_info.append(f"{display_name} {ver}")
+        except PackageNotFoundError:
             version_info.append(f"{display_name} not installed")
 
     print(f"ℹ️ Critical package versions: {', '.join(version_info)}")
 
 def warn_transformers_5_unsupported():
-    """Warn when Transformers 5.x is installed (Qwen3-TTS tokenizer is incompatible)."""
+    """Warn when Transformers 5.x is installed (Qwen3-TTS tokenizer is incompatible).
+
+    NOTE: This check uses sys.modules to avoid eagerly importing transformers (~1.3s).
+    If transformers hasn't been imported yet (e.g. by the version-printing function above),
+    we skip the check -- it will be caught later when an engine actually loads transformers.
+    """
     try:
-        import transformers
+        # Only check if transformers is already loaded (avoids ~1.3s eager import)
+        import sys as _sys
+        if 'transformers' not in _sys.modules:
+            return
+        transformers = _sys.modules['transformers']
         try:
             from packaging.version import Version
             version = Version(transformers.__version__)
@@ -181,6 +205,7 @@ def check_ffmpeg_availability():
             print("💡 Install FFmpeg for optimal performance: https://ffmpeg.org/download.html")
 
 # Print versions and check dependencies immediately for troubleshooting
+check_dependencies()
 print_critical_versions()
 warn_transformers_5_unsupported()
 check_ffmpeg_availability()
@@ -332,6 +357,66 @@ def setup_api_routes():
                 # Fallback list
                 return web.json_response({"languages": ["en", "de", "fr", "ja", "es", "it", "pt", "th", "no"], "error": str(e)})
 
+        @PromptServer.instance.routes.get("/api/tts-audio-suite/voice-input-devices")
+        async def get_voice_input_devices_endpoint(request):
+            """Return input devices without risking a main-process PortAudio hang."""
+            try:
+                import json
+                import subprocess
+
+                probe_script = r"""
+import json
+import sounddevice as sd
+
+devices = []
+seen = set()
+for device in sd.query_devices():
+    try:
+        max_input_channels = int(device.get("max_input_channels", 0))
+    except Exception:
+        max_input_channels = 0
+    if max_input_channels <= 0:
+        continue
+
+    name = str(device.get("name", "")).strip()
+    if not name or name in seen:
+        continue
+
+    seen.add(name)
+    devices.append(name)
+
+print(json.dumps({"devices": devices}))
+"""
+
+                result = subprocess.run(
+                    [sys.executable, "-c", probe_script],
+                    capture_output=True,
+                    text=True,
+                    timeout=8,
+                    check=False,
+                )
+
+                if result.returncode != 0:
+                    stderr = (result.stderr or "").strip()
+                    stdout = (result.stdout or "").strip()
+                    error_message = stderr or stdout or f"device probe exited with code {result.returncode}"
+                    return web.json_response({"devices": [], "error": error_message}, status=500)
+
+                payload = json.loads(result.stdout or "{}")
+                devices = payload.get("devices", [])
+                if not isinstance(devices, list):
+                    devices = []
+
+                return web.json_response({"devices": devices})
+            except subprocess.TimeoutExpired:
+                return web.json_response(
+                    {"devices": [], "error": "Timed out while probing audio input devices. Leaving the dropdown on system default avoids startup hangs."},
+                    status=504,
+                )
+            except Exception as e:
+                print(f"⚠️ Error retrieving voice input devices: {e}")
+                return web.json_response({"devices": [], "error": str(e)}, status=500)
+
         @PromptServer.instance.routes.post("/api/tts-audio-suite/settings")
         async def set_inline_tag_settings_endpoint(request):
             """API endpoint to receive settings from frontend for inline edit tags and restore VC"""
@@ -365,6 +450,55 @@ def setup_api_routes():
             except Exception as e:
                 print(f"⚠️ Error setting inline tag settings: {e}")
                 return web.json_response({"status": "error", "error": str(e)})
+
+        @PromptServer.instance.routes.get("/api/tts-audio-suite/voice-preview")
+        async def get_voice_preview_endpoint(request):
+            """
+            Stream selected Character Voices dropdown audio for browser preview playback.
+
+            Query params:
+            - voice_name: exact dropdown key from get_available_voices()
+            """
+            try:
+                voice_name = request.query.get("voice_name", "").strip()
+                if not voice_name or voice_name == "none":
+                    return web.json_response({"error": "voice_name is required and cannot be 'none'"}, status=400)
+
+                # Load voice discovery directly by file path to avoid package import issues
+                voice_discovery_path = os.path.join(os.path.dirname(__file__), "utils", "voice", "discovery.py")
+                spec = importlib.util.spec_from_file_location("voice_discovery_module", voice_discovery_path)
+                voice_discovery_module = importlib.util.module_from_spec(spec)
+                spec.loader.exec_module(voice_discovery_module)
+
+                # Use cached discovery for fast preview playback.
+                voice_discovery_module.get_available_voices(force_refresh=False)
+                audio_path, _ = voice_discovery_module.load_voice_reference(voice_name)
+
+                if not audio_path or not os.path.exists(audio_path):
+                    return web.json_response({"error": f"Voice file not found: {voice_name}"}, status=404)
+
+                # Direct stream of resolved local audio file.
+                response = web.FileResponse(path=audio_path)
+                response.headers["Cache-Control"] = "no-store, no-cache, must-revalidate"
+                return response
+            except Exception as e:
+                print(f"⚠️ Error serving voice preview audio: {e}")
+                return web.json_response({"error": str(e)}, status=500)
+
+        @PromptServer.instance.routes.get("/api/tts-audio-suite/training-progress")
+        async def get_training_progress_endpoint(request):
+            """Return live training progress snapshots for one or all tracked training nodes."""
+            try:
+                from engines.training.progress_registry import get_training_progress_snapshot
+
+                node_id = request.query.get("node_id")
+                snapshot = get_training_progress_snapshot(node_id=node_id)
+                response = web.json_response({"nodes": snapshot})
+                response.headers["Cache-Control"] = "no-store, no-cache, must-revalidate"
+                return response
+            except Exception as e:
+                print(f"⚠️ Error retrieving training progress: {e}")
+                return web.json_response({"nodes": {}, "error": str(e)}, status=500)
     except Exception as e:
         print(f"⚠️ Could not setup API routes: {e}")
 

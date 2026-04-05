@@ -5,9 +5,45 @@ Fast startup testing with intelligent JIT fallback management
 
 import sys
 import os
-import warnings
 from typing import Optional, Dict, Any
 import time
+from importlib.metadata import PackageNotFoundError, version as package_version
+
+
+def _parse_version_tuple(version_text: str) -> tuple:
+    parts = []
+    for piece in version_text.split("."):
+        digits = ""
+        for char in piece:
+            if char.isdigit():
+                digits += char
+            else:
+                break
+        if not digits:
+            break
+        parts.append(int(digits))
+    return tuple(parts)
+
+
+def _get_installed_numba_version() -> Optional[str]:
+    try:
+        return package_version("numba")
+    except PackageNotFoundError:
+        return None
+    except Exception:
+        return None
+
+
+def _is_python313_numba_disable_jit_risky() -> bool:
+    """Known-bad combo: Python 3.13 + numba 0.64+ with NUMBA_DISABLE_JIT."""
+    if sys.version_info < (3, 13):
+        return False
+
+    numba_version = _get_installed_numba_version()
+    if not numba_version:
+        return False
+
+    return _parse_version_tuple(numba_version) >= (0, 64)
 
 class NumbaCompatibilityManager:
     """
@@ -24,6 +60,11 @@ class NumbaCompatibilityManager:
         """
         Test numba JIT compilation compatibility.
         Returns dict with test results and timing info.
+
+        When quick_test=True (default at startup), we skip the actual librosa import
+        to avoid the ~0.7s cost. We do not assume Python 3.13 is incompatible anymore:
+        some newer numba/librosa stacks work correctly, and forcing NUMBA_DISABLE_JIT
+        can itself cause get_call_template failures on Python 3.13 + numba 0.64+.
         """
         start_time = time.time()
         results = {
@@ -32,44 +73,36 @@ class NumbaCompatibilityManager:
             'errors': [],
             'environment_info': {
                 'python_version': f"{sys.version_info.major}.{sys.version_info.minor}.{sys.version_info.micro}",
-                'is_python_313': sys.version_info >= (3, 13)
+                'is_python_313': sys.version_info >= (3, 13),
+                'numba_version': _get_installed_numba_version(),
             }
         }
-        
-        # Test 1: Basic librosa.stft compilation (most common failure point)
+
+        # FAST PATH: skip actual librosa import during startup to save ~0.7s.
+        # We no longer treat Python 3.13 as automatically broken.
+        if quick_test:
+            results['test_duration'] = time.time() - start_time
+            self._test_results = results
+            return results
+
+        # Test librosa.resample — this lazy-loads librosa.core.audio which contains
+        # the @guvectorize decorated function that crashes on NumPy 2.x + certain hardware.
+        # librosa.stft does NOT trigger this code path, so we must test resample directly.
         try:
             import numpy as np
             import librosa
-            
-            # Create minimal test signal
+
             test_audio = np.random.randn(1024).astype(np.float32)
-            
-            # This will trigger numba JIT compilation if enabled
-            _ = librosa.stft(test_audio, hop_length=256, n_fft=512)
-            
+            _ = librosa.resample(y=test_audio, orig_sr=22050, target_sr=16000)
+
         except Exception as e:
             error_msg = str(e)
-            if "'function' object has no attribute 'get_call_template'" in error_msg:
+            if "'function' object has no attribute 'get_call_template'" in error_msg or \
+               "Cannot determine Numba type" in error_msg:
                 results['jit_compatible'] = False
-                results['errors'].append(f"librosa.stft JIT failure: {error_msg}")
-            elif "Cannot determine Numba type" in error_msg:
-                results['jit_compatible'] = False  
-                results['errors'].append(f"Numba type inference failure: {error_msg}")
+                results['errors'].append(f"librosa.resample JIT failure: {error_msg}")
             else:
-                # Other errors might not be JIT-related
                 results['errors'].append(f"librosa test error: {error_msg}")
-        
-        if not quick_test and results['jit_compatible']:
-            # Test 2: librosa.filters.mel (secondary failure point)
-            try:
-                _ = librosa.filters.mel(sr=16000, n_fft=400, n_mels=128)
-            except Exception as e:
-                error_msg = str(e)
-                if "get_call_template" in error_msg or "Cannot determine Numba type" in error_msg:
-                    results['jit_compatible'] = False
-                    results['errors'].append(f"librosa.filters.mel JIT failure: {error_msg}")
-                else:
-                    results['errors'].append(f"librosa.filters.mel error: {error_msg}")
         
         results['test_duration'] = time.time() - start_time
         self._test_results = results
@@ -79,6 +112,10 @@ class NumbaCompatibilityManager:
         """Apply numba JIT disabling workaround."""
         if self._jit_disabled:
             return  # Already applied
+
+        if _is_python313_numba_disable_jit_risky():
+            print("⚠️ Skipping NUMBA_DISABLE_JIT workaround on Python 3.13 + numba 0.64+ because it can break librosa imports")
+            return
             
         # Set environment variable
         os.environ['NUMBA_DISABLE_JIT'] = '1'
@@ -91,9 +128,9 @@ class NumbaCompatibilityManager:
             numba.config.ENABLE_CUDASIM = True
         except ImportError:
             pass  # numba not imported yet, environment variable will handle it
-        
+
         self._jit_disabled = True
-        print("🔧 Applied numba JIT workaround for Python 3.13 compatibility")
+        print("🔧 Applied numba JIT workaround for Python 3.12+/Numpy 2.x compatibility")
     
     def setup_smart_compatibility(self, quick_startup: bool = True) -> Dict[str, Any]:
         """
@@ -107,8 +144,20 @@ class NumbaCompatibilityManager:
         """
         setup_start = time.time()
         
-        # Skip testing if JIT already disabled by user/environment
+        # If JIT already disabled by user/environment, still apply numba.config
+        # because numba may already be imported and the env var alone won't take effect.
         if os.environ.get('NUMBA_DISABLE_JIT') == '1':
+            if _is_python313_numba_disable_jit_risky():
+                return {
+                    'status': 'jit_disable_skipped',
+                    'message': '⚠️ Leaving NUMBA_DISABLE_JIT compatibility untouched on Python 3.13 + numba 0.64+ (known risky combo)',
+                    'setup_time': time.time() - setup_start
+                }
+            try:
+                import numba
+                numba.config.DISABLE_JIT = True
+            except Exception:
+                pass
             return {
                 'status': 'jit_already_disabled',
                 'message': 'NUMBA_DISABLE_JIT already set by user/environment',

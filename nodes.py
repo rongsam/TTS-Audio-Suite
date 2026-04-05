@@ -11,7 +11,7 @@ except ImportError:
     pass
 
 # Version and constants
-VERSION = "4.21.2"
+VERSION = "4.25.1"
 IS_DEV = False  # Set to False for release builds
 VERSION_DISPLAY = f"v{VERSION}" + (" (dev)" if IS_DEV else "")
 SEPARATOR = "=" * 70
@@ -35,25 +35,39 @@ current_dir = os.path.dirname(__file__)
 if current_dir not in sys.path:
     sys.path.insert(0, current_dir)
 
-# Check transformers version compatibility
-try:
-    import transformers
-    from packaging import version
+# Transformers version check deferred to first engine use to avoid
+# importing transformers (~1.3s) at plugin load time.
+# The check runs lazily via _check_transformers_version() below.
+_transformers_version_checked = False
 
-    required_version = "4.51.3"
-    current_version = transformers.__version__
+def _check_transformers_version():
+    """Check transformers version compatibility on first engine use.
 
-    if version.parse(current_version) < version.parse(required_version):
-        print(f"🚨 COMPATIBILITY WARNING:")
-        print(f"   Transformers version {current_version} is too old (requires >={required_version})")
-        print(f"   This WILL cause errors like 'DynamicCache property has no setter'")
-        print(f"   📋 SOLUTION: Run this command to upgrade:")
-        print(f"   pip install --upgrade transformers>={required_version}")
-        print(f"   (Or use your environment's package manager)")
-        print()
-except Exception as e:
-    print(f"⚠️ Could not check transformers version: {e}")
-    print("   If you encounter DynamicCache errors, upgrade transformers to >=4.51.3")
+    Deferred from module level to avoid the ~1.3s import cost at startup.
+    Called automatically by nodes that need transformers.
+    """
+    global _transformers_version_checked
+    if _transformers_version_checked:
+        return
+    _transformers_version_checked = True
+    try:
+        import transformers
+        from packaging import version
+
+        required_version = "4.51.3"
+        current_version = transformers.__version__
+
+        if version.parse(current_version) < version.parse(required_version):
+            print(f"🚨 COMPATIBILITY WARNING:")
+            print(f"   Transformers version {current_version} is too old (requires >={required_version})")
+            print(f"   This WILL cause errors like 'DynamicCache property has no setter'")
+            print(f"   📋 SOLUTION: Run this command to upgrade:")
+            print(f"   pip install --upgrade transformers>={required_version}")
+            print(f"   (Or use your environment's package manager)")
+            print()
+    except Exception as e:
+        print(f"⚠️ Could not check transformers version: {e}")
+        print("   If you encounter DynamicCache errors, upgrade transformers to >=4.51.3")
 
 # Import nodes using direct file loading to avoid package path issues
 def load_node_module(module_name, file_name):
@@ -114,6 +128,22 @@ try:
 except Exception as e:
     print(f"❌ Qwen3-TTS Engine failed: {e}")
     QWEN3_TTS_ENGINE_AVAILABLE = False
+
+try:
+    granite_asr_engine_module = load_node_module("granite_asr_engine_node", "engines/granite_asr_engine_node.py")
+    GraniteASREngineNode = granite_asr_engine_module.GraniteASREngineNode
+    GRANITE_ASR_ENGINE_AVAILABLE = True
+except Exception as e:
+    print(f"❌ Granite ASR Engine failed: {e}")
+    GRANITE_ASR_ENGINE_AVAILABLE = False
+
+try:
+    echo_tts_engine_module = load_node_module("echo_tts_engine_node", "engines/echo_tts_engine_node.py")
+    EchoTTSEngineNode = echo_tts_engine_module.EchoTTSEngineNode
+    ECHO_TTS_ENGINE_AVAILABLE = True
+except Exception as e:
+    print(f"❌ Echo-TTS Engine failed: {e}")
+    ECHO_TTS_ENGINE_AVAILABLE = False
 
 try:
     chatterbox_official_23lang_engine_module = load_node_module("chatterbox_official_23lang_engine_node", "engines/chatterbox_official_23lang_engine_node.py")
@@ -208,12 +238,28 @@ except Exception as e:
     UNIFIED_ASR_AVAILABLE = False
 
 try:
-    asr_srt_options_module = load_node_module("asr_srt_options_node", "asr/asr_srt_options_node.py")
-    ASRSRTAdvancedOptionsNode = asr_srt_options_module.ASRSRTAdvancedOptionsNode
-    ASR_SRT_OPTIONS_AVAILABLE = True
+    unified_training_module = load_node_module("unified_model_training_node", "unified/model_training_node.py")
+    UnifiedModelTrainingNode = unified_training_module.UnifiedModelTrainingNode
+    UNIFIED_TRAINING_AVAILABLE = True
 except Exception as e:
-    print(f"❌ ASR SRT Advanced Options failed: {e}")
-    ASR_SRT_OPTIONS_AVAILABLE = False
+    print(f"❌ Unified Model Training failed: {e}")
+    UNIFIED_TRAINING_AVAILABLE = False
+
+try:
+    srt_advanced_options_module = load_node_module("srt_advanced_options_node", "subtitles/srt_advanced_options_node.py")
+    SRTAdvancedOptionsNode = srt_advanced_options_module.SRTAdvancedOptionsNode
+    SRT_ADVANCED_OPTIONS_AVAILABLE = True
+except Exception as e:
+    print(f"❌ SRT Advanced Options failed: {e}")
+    SRT_ADVANCED_OPTIONS_AVAILABLE = False
+
+try:
+    text_to_srt_builder_module = load_node_module("text_to_srt_builder_node", "subtitles/text_to_srt_builder_node.py")
+    TextToSRTBuilderNode = text_to_srt_builder_module.TextToSRTBuilderNode
+    TEXT_TO_SRT_BUILDER_AVAILABLE = True
+except Exception as e:
+    print(f"❌ Text to SRT Builder failed: {e}")
+    TEXT_TO_SRT_BUILDER_AVAILABLE = False
 
 # Load support nodes
 try:
@@ -326,12 +372,36 @@ except Exception as e:
     LOAD_RVC_MODEL_AVAILABLE = False
 
 try:
+    rvc_dataset_prep_module = load_node_module("rvc_dataset_prep_node", "training/rvc_dataset_prep_node.py")
+    RVCDatasetPrepNode = rvc_dataset_prep_module.RVCDatasetPrepNode
+    RVC_DATASET_PREP_AVAILABLE = True
+except Exception as e:
+    print(f"❌ RVC Dataset Prep failed: {e}")
+    RVC_DATASET_PREP_AVAILABLE = False
+
+try:
+    rvc_training_config_module = load_node_module("rvc_training_config_node", "training/rvc_training_config_node.py")
+    RVCTrainingConfigNode = rvc_training_config_module.RVCTrainingConfigNode
+    RVC_TRAINING_CONFIG_AVAILABLE = True
+except Exception as e:
+    print(f"❌ RVC Training Config failed: {e}")
+    RVC_TRAINING_CONFIG_AVAILABLE = False
+
+try:
     phoneme_text_normalizer_module = load_node_module("phoneme_text_normalizer_node", "text/phoneme_text_normalizer_node.py")
     PhonemeTextNormalizer = phoneme_text_normalizer_module.PhonemeTextNormalizer
     PHONEME_TEXT_NORMALIZER_AVAILABLE = True
 except Exception as e:
     print(f"❌ Phoneme Text Normalizer failed: {e}")
     PHONEME_TEXT_NORMALIZER_AVAILABLE = False
+
+try:
+    asr_punctuation_truecase_module = load_node_module("asr_punctuation_truecase_node", "text/asr_punctuation_truecase_node.py")
+    ASRPunctuationTruecaseNode = asr_punctuation_truecase_module.ASRPunctuationTruecaseNode
+    ASR_PUNCTUATION_TRUECASE_AVAILABLE = True
+except Exception as e:
+    print(f"❌ ASR Punctuation / Truecase failed: {e}")
+    ASR_PUNCTUATION_TRUECASE_AVAILABLE = False
 
 try:
     string_multiline_tag_editor_module = load_node_module("string_multiline_tag_editor_node", "text/tts_tag_editor_node.py")
@@ -463,6 +533,14 @@ if QWEN3_TTS_ENGINE_AVAILABLE:
     NODE_CLASS_MAPPINGS["Qwen3TTSEngineNode"] = Qwen3TTSEngineNode
     NODE_DISPLAY_NAME_MAPPINGS["Qwen3TTSEngineNode"] = "⚙️ Qwen3-TTS Engine"
 
+if GRANITE_ASR_ENGINE_AVAILABLE:
+    NODE_CLASS_MAPPINGS["GraniteASREngineNode"] = GraniteASREngineNode
+    NODE_DISPLAY_NAME_MAPPINGS["GraniteASREngineNode"] = "⚙️ Granite ASR Engine"
+
+if ECHO_TTS_ENGINE_AVAILABLE:
+    NODE_CLASS_MAPPINGS["EchoTTSEngineNode"] = EchoTTSEngineNode
+    NODE_DISPLAY_NAME_MAPPINGS["EchoTTSEngineNode"] = "⚙️ Echo-TTS Engine"
+
 if QWEN3_TTS_VOICE_DESIGNER_AVAILABLE:
     NODE_CLASS_MAPPINGS["Qwen3TTSVoiceDesignerNode"] = Qwen3TTSVoiceDesignerNode
     NODE_DISPLAY_NAME_MAPPINGS["Qwen3TTSVoiceDesignerNode"] = "🎨 Qwen3-TTS Voice Designer"
@@ -511,9 +589,17 @@ if UNIFIED_ASR_AVAILABLE:
     NODE_CLASS_MAPPINGS["UnifiedASRTranscribeNode"] = UnifiedASRTranscribeNode
     NODE_DISPLAY_NAME_MAPPINGS["UnifiedASRTranscribeNode"] = "✏️ ASR Transcribe"
 
-if ASR_SRT_OPTIONS_AVAILABLE:
-    NODE_CLASS_MAPPINGS["ASRSRTAdvancedOptionsNode"] = ASRSRTAdvancedOptionsNode
-    NODE_DISPLAY_NAME_MAPPINGS["ASRSRTAdvancedOptionsNode"] = "🔧 ASR SRT Advanced Options"
+if UNIFIED_TRAINING_AVAILABLE:
+    NODE_CLASS_MAPPINGS["UnifiedModelTrainingNode"] = UnifiedModelTrainingNode
+    NODE_DISPLAY_NAME_MAPPINGS["UnifiedModelTrainingNode"] = "🎓 Model Training"
+
+if SRT_ADVANCED_OPTIONS_AVAILABLE:
+    NODE_CLASS_MAPPINGS["SRTAdvancedOptionsNode"] = SRTAdvancedOptionsNode
+    NODE_DISPLAY_NAME_MAPPINGS["SRTAdvancedOptionsNode"] = "🔧 SRT Advanced Options"
+
+if TEXT_TO_SRT_BUILDER_AVAILABLE:
+    NODE_CLASS_MAPPINGS["TextToSRTBuilderNode"] = TextToSRTBuilderNode
+    NODE_DISPLAY_NAME_MAPPINGS["TextToSRTBuilderNode"] = "📺 Text to SRT Builder"
 
 # Register legacy support nodes
 if VOICE_CAPTURE_AVAILABLE:
@@ -582,10 +668,22 @@ if LOAD_RVC_MODEL_AVAILABLE:
     NODE_CLASS_MAPPINGS["LoadRVCModelNode"] = LoadRVCModelNode
     NODE_DISPLAY_NAME_MAPPINGS["LoadRVCModelNode"] = "🎭 Load RVC Character Model"
 
+if RVC_DATASET_PREP_AVAILABLE:
+    NODE_CLASS_MAPPINGS["RVCDatasetPrepNode"] = RVCDatasetPrepNode
+    NODE_DISPLAY_NAME_MAPPINGS["RVCDatasetPrepNode"] = "📦 RVC Dataset Prep"
+
+if RVC_TRAINING_CONFIG_AVAILABLE:
+    NODE_CLASS_MAPPINGS["RVCTrainingConfigNode"] = RVCTrainingConfigNode
+    NODE_DISPLAY_NAME_MAPPINGS["RVCTrainingConfigNode"] = "🎛️ RVC Training Config"
+
 # Register text processing nodes
 if PHONEME_TEXT_NORMALIZER_AVAILABLE:
     NODE_CLASS_MAPPINGS["PhonemeTextNormalizer"] = PhonemeTextNormalizer
     NODE_DISPLAY_NAME_MAPPINGS["PhonemeTextNormalizer"] = "📝 Phoneme Text Normalizer"
+
+if ASR_PUNCTUATION_TRUECASE_AVAILABLE:
+    NODE_CLASS_MAPPINGS["ASRPunctuationTruecaseNode"] = ASRPunctuationTruecaseNode
+    NODE_DISPLAY_NAME_MAPPINGS["ASRPunctuationTruecaseNode"] = "📝 ASR Punctuation / Truecase"
 
 if STRING_MULTILINE_TAG_EDITOR_AVAILABLE:
     NODE_CLASS_MAPPINGS["StringMultilineTagEditor"] = StringMultilineTagEditor

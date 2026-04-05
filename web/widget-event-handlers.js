@@ -8,10 +8,10 @@ import { TagUtilities } from "./tag-utilities.js";
 import { isLanguageCode } from "./language-constants.js";
 
 export function attachAllEventHandlers(
-    editor, state, widget, storageKey, getPlainText, setEditorText, getCaretPos, setCaretPos,
+    editor, state, widget, storageKey, getPlainText, setEditorText, getCaretPos, setCaretPos, getSelectionRange,
     undoBtn, redoBtn, historyStatus, charSelect, charInput, addCharBtn, langSelect, addLangBtn,
     paramTypeSelect, paramInputWrapper, addParamBtn, presetButtons, presetTitles, updatePresetGlows,
-    formatBtn, validateBtn, fontFamilySelect, fontSizeInput, fontSizeDisplay, setFontSize,
+    formatBtn, validateBtn, fontFamilySelect, fontSizeInput, fontSizeDisplay, setFontSize, setFontFamily,
     showNotification, resizeDivider, sidebar, setSidebarWidth, setUIScale,
     // Inline edit controls
     paraSelect, paraIterSlider, addParaBtn,
@@ -44,15 +44,105 @@ export function attachAllEventHandlers(
 
     // Editor input - add to history with smart debouncing
     let historyDebounceTimer = null;
-    let lastHistoryText = "";
+    let lastHistoryText = state.history[state.historyIndex]?.text ?? getPlainText();
 
     const flushHistory = () => {
         const plainText = getPlainText();
-        if (plainText !== lastHistoryText) {
+        const currentHistoryText = state.history[state.historyIndex]?.text;
+
+        if (plainText !== lastHistoryText && plainText !== currentHistoryText) {
             const caretPos = getCaretPos();
             state.addToHistory(plainText, caretPos);
-            lastHistoryText = plainText;
         }
+
+        lastHistoryText = plainText;
+    };
+
+    const flushPendingHistory = () => {
+        if (historyDebounceTimer !== null) {
+            clearTimeout(historyDebounceTimer);
+            historyDebounceTimer = null;
+        }
+
+        flushHistory();
+        historyStatus.textContent = state.getHistoryStatus();
+    };
+
+    const getClampedCaretPos = (targetText, preferredPos, fallbackPos = 0) => {
+        const basePos = preferredPos ?? fallbackPos ?? 0;
+        return Math.max(0, Math.min(basePos, targetText.length));
+    };
+
+    const mapCaretPosBetweenTexts = (fromText, toText, caretPos, fallbackPos = 0) => {
+        const safeCaretPos = getClampedCaretPos(fromText, caretPos, fallbackPos);
+
+        if (fromText === toText) {
+            return getClampedCaretPos(toText, safeCaretPos, fallbackPos);
+        }
+
+        const maxPrefix = Math.min(fromText.length, toText.length);
+        let prefixLength = 0;
+        while (prefixLength < maxPrefix && fromText[prefixLength] === toText[prefixLength]) {
+            prefixLength++;
+        }
+
+        let fromSuffixIndex = fromText.length;
+        let toSuffixIndex = toText.length;
+        while (
+            fromSuffixIndex > prefixLength &&
+            toSuffixIndex > prefixLength &&
+            fromText[fromSuffixIndex - 1] === toText[toSuffixIndex - 1]
+        ) {
+            fromSuffixIndex--;
+            toSuffixIndex--;
+        }
+
+        const suffixLength = fromText.length - fromSuffixIndex;
+        const fromChangeEnd = fromText.length - suffixLength;
+        const toChangeEnd = toText.length - suffixLength;
+
+        if (safeCaretPos <= prefixLength) {
+            return safeCaretPos;
+        }
+
+        if (safeCaretPos >= fromChangeEnd) {
+            const suffixOffset = safeCaretPos - fromChangeEnd;
+            return getClampedCaretPos(toText, toChangeEnd + suffixOffset, fallbackPos);
+        }
+
+        const changedRegionOffset = safeCaretPos - prefixLength;
+        return getClampedCaretPos(toText, prefixLength + changedRegionOffset, fallbackPos);
+    };
+
+    const restoreEditorHistoryEntry = (entry, preferredCaretPos = null) => {
+        const restoredCaretPos = getClampedCaretPos(entry.text, preferredCaretPos, entry.caretPos);
+        setEditorText(entry.text);
+        lastHistoryText = entry.text;
+        setTimeout(() => {
+            editor.focus();
+            setCaretPos(restoredCaretPos);
+        }, 0);
+        state.saveToLocalStorage(storageKey);
+        widget.callback?.(widget.value);
+        historyStatus.textContent = state.getHistoryStatus();
+    };
+
+    const commitEditorTextChange = (newText, newCaretPos, { focusEditor = true } = {}) => {
+        setEditorText(newText);
+        state.text = newText;
+        state.addToHistory(newText, newCaretPos);
+        state.saveToLocalStorage(storageKey);
+        lastHistoryText = newText;
+        widget.value = newText;
+        widget.callback?.(newText);
+        historyStatus.textContent = state.getHistoryStatus();
+
+        setTimeout(() => {
+            if (focusEditor) {
+                editor.focus();
+            }
+            setCaretPos(newCaretPos);
+        }, 0);
     };
 
     editor.addEventListener("input", (e) => {
@@ -77,44 +167,92 @@ export function attachAllEventHandlers(
         // Allow copy to work, but prevent ComfyUI from receiving the event
         // Critical for ComfyUI v0.3.75+ which intercepts clipboard events
         e.stopPropagation();
+
+        const selection = getSelectionRange();
+        if (!selection?.text || !e.clipboardData) {
+            return;
+        }
+
+        e.preventDefault();
+        e.clipboardData.setData("text/plain", selection.text);
     });
 
     editor.addEventListener("cut", (e) => {
         // Allow cut to work, but prevent ComfyUI from receiving the event
         e.stopPropagation();
-        setTimeout(() => {
-            flushHistory();
-            historyStatus.textContent = state.getHistoryStatus();
-        }, 0);
+
+        const selection = getSelectionRange();
+        if (!selection?.text || !e.clipboardData) {
+            setTimeout(() => {
+                flushHistory();
+                historyStatus.textContent = state.getHistoryStatus();
+            }, 0);
+            return;
+        }
+
+        e.preventDefault();
+        e.clipboardData.setData("text/plain", selection.text);
+
+        const plainText = getPlainText();
+        const newText = plainText.substring(0, selection.start) + plainText.substring(selection.end);
+        commitEditorTextChange(newText, selection.start);
     });
 
     editor.addEventListener("paste", (e) => {
         // Stop propagation AFTER paste completes to prevent ComfyUI from pasting nodes
-        // Don't use preventDefault() or stopImmediatePropagation() - let paste work normally
         e.stopPropagation();
-        setTimeout(() => {
-            flushHistory();
-            historyStatus.textContent = state.getHistoryStatus();
-        }, 0);
-    }); // Bubble phase - paste completes first, then we stop it from bubbling to ComfyUI
+
+        if (!e.clipboardData) {
+            return;
+        }
+
+        const pastedText = e.clipboardData.getData("text/plain");
+        if (typeof pastedText !== "string") {
+            return;
+        }
+
+        e.preventDefault();
+
+        const selection = getSelectionRange();
+        const plainText = getPlainText();
+        const insertStart = selection ? selection.start : getCaretPos();
+        const insertEnd = selection ? selection.end : insertStart;
+        const normalizedText = pastedText.replace(/\r\n?/g, "\n");
+        const newText = plainText.substring(0, insertStart) + normalizedText + plainText.substring(insertEnd);
+        const newCaretPos = insertStart + normalizedText.length;
+
+        commitEditorTextChange(newText, newCaretPos);
+    });
+
+    const rememberCaretPosition = () => {
+        const caretPos = getCaretPos();
+        state.lastCursorPosition = caretPos;
+
+        if (state.historyIndex >= 0 && state.history[state.historyIndex]) {
+            state.history[state.historyIndex].caretPos = caretPos;
+        }
+    };
+
+    editor.addEventListener("mouseup", rememberCaretPosition);
+    editor.addEventListener("keyup", rememberCaretPosition);
+    editor.addEventListener("focus", rememberCaretPosition);
+
+    const applyHistoryStep = (direction) => {
+        flushPendingHistory();
+        const currentText = getPlainText();
+        const currentCaretPos = getCaretPos();
+        const targetEntry = direction === "redo" ? state.redo() : state.undo();
+        const mappedCaretPos = mapCaretPosBetweenTexts(currentText, targetEntry.text, currentCaretPos, targetEntry.caretPos);
+        restoreEditorHistoryEntry(targetEntry, mappedCaretPos);
+    };
 
     // Undo/Redo buttons
     undoBtn.addEventListener("click", () => {
-        const entry = state.undo();
-        setEditorText(entry.text);
-        setTimeout(() => setCaretPos(entry.caretPos || 0), 0);
-        state.saveToLocalStorage(storageKey);
-        widget.callback?.(widget.value);
-        historyStatus.textContent = state.getHistoryStatus();
+        applyHistoryStep("undo");
     });
 
     redoBtn.addEventListener("click", () => {
-        const entry = state.redo();
-        setEditorText(entry.text);
-        setTimeout(() => setCaretPos(entry.caretPos || 0), 0);
-        state.saveToLocalStorage(storageKey);
-        widget.callback?.(widget.value);
-        historyStatus.textContent = state.getHistoryStatus();
+        applyHistoryStep("redo");
     });
 
     // Keyboard shortcuts for undo/redo and tag/preset insertion
@@ -151,15 +289,26 @@ export function attachAllEventHandlers(
                 presetButtons.preset_3?.load?.click?.();
             }
         }
+        const isPrimaryModifier = (e.ctrlKey || e.metaKey) && !e.altKey;
+        if (isPrimaryModifier) {
+            const isUndo = (e.key === "z" || e.key === "Z") && !e.shiftKey;
+            const isRedo = (e.key === "y" || e.key === "Y") || ((e.key === "z" || e.key === "Z") && e.shiftKey);
+
+            if (isUndo || isRedo) {
+                e.preventDefault();
+                e.stopPropagation();
+                e.stopImmediatePropagation();
+                applyHistoryStep(isRedo ? "redo" : "undo");
+                return;
+            }
+        }
+
         // Alt+Z: Undo, Alt+Shift+Z: Redo (also allow with shift)
         if (e.altKey && !e.ctrlKey && !e.metaKey && (e.key === "z" || e.key === "Z")) {
             e.preventDefault();
-            let entry = e.shiftKey ? state.redo() : state.undo();
-            setEditorText(entry.text);
-            setTimeout(() => setCaretPos(entry.caretPos || 0), 0);
-            state.saveToLocalStorage(storageKey);
-            widget.callback?.(widget.value);
-            historyStatus.textContent = state.getHistoryStatus();
+            e.stopPropagation();
+            e.stopImmediatePropagation();
+            applyHistoryStep(e.shiftKey ? "redo" : "undo");
         }
     });
 
@@ -172,15 +321,15 @@ export function attachAllEventHandlers(
             newSize = Math.max(2, Math.min(120, newSize));
             setFontSize(newSize);
             fontSizeInput.value = newSize;
-            fontSizeDisplay.textContent = newSize + "px";
+            if (fontSizeDisplay) {
+                fontSizeDisplay.textContent = newSize + "px";
+            }
         }
     });
 
     // Font family selector change
     fontFamilySelect.addEventListener("change", () => {
-        editor.style.fontFamily = fontFamilySelect.value;
-        state.fontFamily = fontFamilySelect.value;
-        state.saveToLocalStorage(storageKey);
+        setFontFamily(fontFamilySelect.value);
     });
 
     // Font size input change
@@ -196,7 +345,9 @@ export function attachAllEventHandlers(
         let newSize = parseInt(fontSizeInput.value) || state.fontSize;
         newSize = Math.max(2, Math.min(120, newSize));
         editor.style.fontSize = newSize + "px";
-        fontSizeDisplay.textContent = newSize + "px";
+        if (fontSizeDisplay) {
+            fontSizeDisplay.textContent = newSize + "px";
+        }
     });
 
     // Character select dropdown
@@ -210,17 +361,12 @@ export function attachAllEventHandlers(
 
     // Helper to get selected text and its position
     const getSelection = () => {
-        const sel = window.getSelection();
-        if (sel.toString().length === 0) return null;
+        const selection = getSelectionRange();
+        if (!selection?.text) {
+            return null;
+        }
 
-        const range = sel.getRangeAt(0);
-        const preRange = range.cloneRange();
-        preRange.selectNodeContents(editor);
-        preRange.setEnd(range.startContainer, range.startOffset);
-        const start = preRange.toString().length;
-        const end = start + range.toString().length;
-
-        return { start, end, text: range.toString() };
+        return selection;
     };
 
     // Add character button
@@ -427,11 +573,11 @@ export function attachAllEventHandlers(
 
         buttons.save.addEventListener("click", () => {
             // First check if user selected text in editor (like [de:Alice|seed:42|temp:0.8])
-            const selection = window.getSelection();
+            const selection = getSelectionRange();
             let selectedText = "";
 
-            if (selection.toString().length > 0) {
-                selectedText = selection.toString();
+            if (selection?.text?.length > 0) {
+                selectedText = selection.text;
                 // Store the selected text as the preset
                 state.presets[presetKey] = {
                     tag: selectedText,
@@ -682,7 +828,10 @@ export function attachAllEventHandlers(
             widget.callback?.(widget.value);
             historyStatus.textContent = state.getHistoryStatus();
 
-            setTimeout(() => setCaretPos(result.newCaretPos), 0);
+            setTimeout(() => {
+                editor.focus();
+                setCaretPos(result.newCaretPos);
+            }, 0);
             showNotification(`✓ Updated inline tag`, 1500);
         } else {
             // Create new tag
@@ -698,7 +847,10 @@ export function attachAllEventHandlers(
             widget.callback?.(widget.value);
             historyStatus.textContent = state.getHistoryStatus();
 
-            setTimeout(() => setCaretPos(caretPos + newTag.length), 0);
+            setTimeout(() => {
+                editor.focus();
+                setCaretPos(caretPos + newTag.length);
+            }, 0);
             showNotification(`✓ Inserted: ${newTag}`, 1500);
         }
     };

@@ -1,5 +1,5 @@
 """
-ASR SRT Advanced Options Node - Fine-tune subtitle construction for ASR outputs.
+SRT Advanced Options Node - Fine-tune subtitle construction behavior.
 """
 
 import os
@@ -22,156 +22,177 @@ base_spec.loader.exec_module(base_module)
 
 BaseChatterBoxNode = base_module.BaseChatterBoxNode
 
+from utils.asr.srt_heuristic_profiles import (
+    DEFAULT_HEURISTIC_PROFILE_LABEL,
+    ENGLISH_DANGLING_TAIL_ALLOWLIST,
+    ENGLISH_INCOMPLETE_KEYWORDS,
+    HEURISTIC_PROFILE_OPTIONS,
+)
 
-class ASRSRTAdvancedOptionsNode(BaseChatterBoxNode):
+
+class SRTAdvancedOptionsNode(BaseChatterBoxNode):
     @classmethod
     def NAME(cls):
-        return "🔧 ASR SRT Advanced Options"
+        return "🔧 SRT Advanced Options"
 
     @classmethod
     def INPUT_TYPES(cls):
         return {
             "required": {
-                "srt_preset": (["Custom", "Netflix-Standard", "Broadcast", "Fast speech", "Mobile"], {
+                "srt_preset": (["Custom", "Netflix-Standard", "Broadcast", "Fast speech", "Mobile", "TTS-Ready"], {
                     "default": "Broadcast",
-                    "tooltip": "Readability preset (standards-style).\nCustom = you control everything below.\n\n📌 Examples (approx):\n• Broadcast: 42 CPL, 17 CPS, 6s max\n• Netflix-Standard: 42 CPL, 17 CPS, 7s max\n• Fast speech: 42 CPL, 20 CPS, 6s max\n• Mobile: 32 CPL, 17 CPS, 5s max\n\nTip: Presets aim for safe industry readability; advanced controls let you break the rules."
+                    "tooltip": "Readability preset for subtitle building.\nCustom = you control the raw knobs below.\n\nExamples:\n• Broadcast: conservative timing, safe desktop readability\n• Netflix-Standard: similar readability with longer max duration\n• Fast speech: denser subtitles for rapid speech\n• Mobile: shorter lines for smaller screens\n• TTS-Ready: single-line cues that stop by meaning instead of display wrapping"
                 }),
                 "srt_mode": (["smart", "engine_segments", "words"], {
                     "default": "smart",
-                    "tooltip": "How subtitles are built:\n• smart: re-segment words for readability (recommended)\n• engine_segments: trust model segments as-is\n• words: one word per subtitle (debug / alignment)"
+                    "tooltip": "How subtitle cues are built:\n• smart: rebuild from word timings for readability\n• engine_segments: trust incoming segments as-is\n• words: one word per cue (debug/alignment only)\n\nUse smart unless you have a reason not to."
+                }),
+                "tts_ready_mode": ("BOOLEAN", {
+                    "default": False,
+                    "tooltip": "Build cues for downstream TTS instead of on-screen subtitles.\nThis disables multi-line display wrapping pressure, keeps each cue on one line, and prefers semantic stopping points over character-count stops."
+                }),
+                "heuristic_language_profile": (HEURISTIC_PROFILE_OPTIONS, {
+                    "default": DEFAULT_HEURISTIC_PROFILE_LABEL,
+                    "tooltip": "Language profile for heuristic defaults.\nPick a language to auto-populate connector and incomplete-sentence lists.\nAuto resolves from ASR timing language when available. Custom means you fully manage the text lists yourself."
                 }),
                 "srt_max_chars_per_line": ("INT", {
                     "default": 42, "min": 10, "max": 10000, "step": 1,
-                    "tooltip": "Max characters per line.\nHigher = longer lines, fewer splits.\nExample: 32–36 mobile, 42 desktop."
+                    "tooltip": "Maximum characters per subtitle line.\nLower = shorter lines, more splits.\nTypical values: 32 mobile, 42 desktop/broadcast."
                 }),
                 "srt_max_lines": ("INT", {
                     "default": 2, "min": 1, "max": 3, "step": 1,
-                    "tooltip": "Max lines per subtitle block.\nHigher = taller subtitles, fewer splits.\nExample: 2 standard, 3 dense speech."
+                    "tooltip": "Maximum lines per subtitle cue.\n2 is the normal default. 3 is denser but harder to read."
                 }),
                 "srt_max_duration": ("FLOAT", {
                     "default": 6.0, "min": 0.2, "max": 9999.0, "step": 0.1,
-                    "tooltip": "Max time a subtitle stays on screen (seconds).\nHigher = fewer splits; too high can feel laggy."
+                    "tooltip": "Maximum on-screen duration for a subtitle cue in seconds.\nHigher = fewer splits; too high feels laggy."
                 }),
                 "srt_min_duration": ("FLOAT", {
                     "default": 1.0, "min": 0.0, "max": 9999.0, "step": 0.1,
-                    "tooltip": "Minimum time on screen (seconds).\nHigher = fewer short subtitles; lower = more rapid changes."
+                    "tooltip": "Minimum on-screen duration in seconds.\nHigher = fewer flash cues; lower = tighter sync."
                 }),
                 "srt_min_gap": ("FLOAT", {
                     "default": 0.6, "min": 0.0, "max": 9999.0, "step": 0.1,
-                    "tooltip": "Pause length that forces a new subtitle (seconds).\nHigher = fewer splits on short pauses."
+                    "tooltip": "Pause length that forces a new subtitle cue.\nHigher = more merging across short pauses."
                 }),
                 "srt_max_cps": ("FLOAT", {
                     "default": 20.0, "min": 0.1, "max": 9999.0, "step": 0.5,
-                    "tooltip": "Reading speed limit (characters per second).\nLower = easier to read, more splits.\nHigher = denser, harder to read."
+                    "tooltip": "Maximum reading speed in characters per second.\nLower = easier reading, more splits.\nHigher = denser subtitles."
                 }),
                 "dedupe_overlaps": ("BOOLEAN", {
                     "default": True,
-                    "tooltip": "Remove overlapping duplicate phrases from bad alignments.\nMay also remove real repeats (chorus)."
+                    "tooltip": "Remove overlapping duplicate phrases from bad word timing data.\nUseful for alignment glitches.\nCan also remove real repetitions like choruses."
                 }),
                 "dedupe_window_ms": ("INT", {
                     "default": 1500, "min": 0, "max": 10000, "step": 50,
-                    "tooltip": "Time window to detect overlaps (ms).\nHigher = more aggressive duplicate removal."
+                    "tooltip": "Time window used to detect overlapping duplicates in milliseconds.\nHigher = more aggressive dedupe."
                 }),
                 "dedupe_min_words": ("INT", {
                     "default": 2, "min": 1, "max": 10, "step": 1,
-                    "tooltip": "Minimum matching words to consider a repeat.\nHigher = safer; lower = more aggressive."
+                    "tooltip": "Minimum matching word count before a repeated phrase is considered a duplicate.\nHigher = safer."
                 }),
                 "dedupe_overlap_ratio": ("FLOAT", {
                     "default": 0.6, "min": 0.1, "max": 1.0, "step": 0.05,
-                    "tooltip": "How much timing overlap is required to drop a duplicate phrase.\nHigher = stricter."
+                    "tooltip": "Required timing overlap ratio before duplicate text is removed.\nHigher = stricter dedupe."
                 }),
                 "punctuation_grace_chars": ("INT", {
                     "default": 12, "min": 0, "max": 100, "step": 1,
-                    "tooltip": "Let a sentence end (.,!,?,…) exceed max length by this many chars.\nHigher = fewer awkward breaks before punctuation."
+                    "tooltip": "Allow a sentence-ending punctuation mark to exceed the max line length by this many chars.\nHelps avoid ugly breaks right before punctuation."
                 }),
                 "min_words_per_segment": ("INT", {
                     "default": 2, "min": 1, "max": 10, "step": 1,
-                    "tooltip": "Merge very short segments into the next one.\nHigher = fewer tiny 1–2 word subtitles."
+                    "tooltip": "Merge very tiny subtitle segments into neighbors.\nHigher = fewer one-word cues."
                 }),
                 "min_segment_seconds": ("FLOAT", {
                     "default": 0.4, "min": 0.0, "max": 5.0, "step": 0.05,
-                    "tooltip": "Merge segments shorter than this (seconds).\nHigher = fewer micro subtitles; too high can blur timing."
+                    "tooltip": "Merge subtitle cues shorter than this duration.\nHigher = fewer micro-cues."
                 }),
                 "merge_trailing_punct_word": ("BOOLEAN", {
                     "default": True,
-                    "tooltip": "Keep a trailing word with punctuation in the previous subtitle.\nFixes cases like \"beautiful / world.\" across a short pause."
+                    "tooltip": "Keep a trailing word with punctuation attached to the previous subtitle when possible.\nFixes splits like \"beautiful / world.\""
                 }),
                 "merge_trailing_punct_max_gap": ("FLOAT", {
                     "default": 1.0, "min": 0.0, "max": 5.0, "step": 0.05,
-                    "tooltip": "Max pause allowed when bridging a trailing punctuation word (seconds).\nHigher = more bridging across pauses."
+                    "tooltip": "Maximum pause allowed when bridging that trailing punctuation word.\nHigher = more aggressive bridging."
                 }),
                 "merge_leading_short_phrase": ("BOOLEAN", {
                     "default": True,
-                    "tooltip": "Merge a very short phrase into the previous subtitle if it follows punctuation.\nFixes cases like \"I'm a / riddle.\""
+                    "tooltip": "Merge a very short phrase into the previous cue when it follows punctuation.\nFixes splits like \"I'm a / riddle.\""
                 }),
                 "merge_leading_short_max_words": ("INT", {
                     "default": 2, "min": 1, "max": 6, "step": 1,
-                    "tooltip": "Max words to treat as a short leading phrase.\nLower = safer, higher = more aggressive."
+                    "tooltip": "Maximum word count for that short leading phrase.\nHigher = more aggressive merging."
                 }),
                 "merge_leading_short_max_gap": ("FLOAT", {
                     "default": 2.0, "min": 0.0, "max": 5.0, "step": 0.05,
-                    "tooltip": "Max pause allowed when merging a short leading phrase (seconds).\nHigher = more merging across pauses."
+                    "tooltip": "Maximum pause allowed when merging a short leading phrase.\nHigher = more merging across pauses."
                 }),
                 "merge_dangling_tail": ("BOOLEAN", {
                     "default": True,
-                    "tooltip": "Merge a short “hanging” ending into the next subtitle when it ends on a connector word.\nExample: \"I'm a / riddle.\""
+                    "tooltip": "Merge a short dangling ending into the next subtitle when it ends on a connector word.\nUseful for incomplete fragments."
                 }),
                 "merge_dangling_tail_max_words": ("INT", {
                     "default": 3, "min": 1, "max": 8, "step": 1,
-                    "tooltip": "Max words allowed in that hanging ending.\nHigher = more aggressive merges."
+                    "tooltip": "Maximum words allowed in that dangling ending.\nHigher = more aggressive merging."
                 }),
                 "merge_dangling_tail_max_gap": ("FLOAT", {
                     "default": 3.0, "min": 0.0, "max": 6.0, "step": 0.05,
-                    "tooltip": "Max pause allowed when merging a dangling tail (seconds).\nHigher = more merging across pauses."
+                    "tooltip": "Maximum pause allowed when merging a dangling tail.\nHigher = more aggressive merging."
                 }),
                 "merge_dangling_tail_allowlist": ("STRING", {
-                    "default": "a,an,the,to,of,and,or,im,i'm,you,you're,we,they,he,she,it",
-                    "tooltip": "Comma list of connector words that count as dangling tails.\nExample: a, the, to, of, and, I'm"
+                    "default": ENGLISH_DANGLING_TAIL_ALLOWLIST,
+                    "tooltip": "Comma-separated connector words treated as dangling tails.\nExample: a, the, to, of, and, I'm"
                 }),
                 "merge_leading_short_no_punct": ("BOOLEAN", {
                     "default": True,
-                    "tooltip": "Merge a very short follow-up into the previous subtitle even without punctuation.\nFixes cases like \"What the hell / am I\"."
+                    "tooltip": "Merge a very short follow-up into the previous subtitle even without punctuation.\nUseful for awkward mid-thought splits."
                 }),
                 "merge_leading_short_no_punct_max_words": ("INT", {
                     "default": 2, "min": 1, "max": 6, "step": 1,
-                    "tooltip": "Max words in that short follow-up.\nHigher = more aggressive merges."
+                    "tooltip": "Maximum words in that short follow-up.\nHigher = more aggressive merging."
                 }),
                 "merge_leading_short_no_punct_max_gap": ("FLOAT", {
                     "default": 1.5, "min": 0.0, "max": 5.0, "step": 0.05,
-                    "tooltip": "Max pause allowed when merging that follow-up (seconds).\nHigher = more merging across pauses."
+                    "tooltip": "Maximum pause allowed when merging that follow-up.\nHigher = more aggressive merging."
                 }),
                 "merge_incomplete_sentence": ("BOOLEAN", {
                     "default": True,
-                    "tooltip": "Merge short continuations of a question when the previous line looks incomplete.\nExample: \"What the hell / am I doing here?\""
+                    "tooltip": "Merge short continuations when the previous subtitle clearly looks incomplete.\nUseful for broken questions and sentence fragments."
                 }),
                 "merge_incomplete_max_gap": ("FLOAT", {
                     "default": 1.2, "min": 0.0, "max": 5.0, "step": 0.05,
-                    "tooltip": "Max pause allowed when merging an incomplete sentence (seconds).\nHigher = more merging across pauses."
+                    "tooltip": "Maximum pause allowed when merging an incomplete sentence.\nHigher = more aggressive merging."
                 }),
                 "merge_incomplete_keywords": ("STRING", {
-                    "default": "what,why,how,where,who,which,when",
-                    "tooltip": "Comma list of question keywords that suggest an incomplete sentence.\nExample: what, why, how, where"
+                    "default": ENGLISH_INCOMPLETE_KEYWORDS,
+                    "tooltip": "Comma-separated keywords that suggest the previous subtitle is incomplete.\nExample: what, why, how, where"
                 }),
                 "merge_incomplete_split_next": ("BOOLEAN", {
                     "default": True,
-                    "tooltip": "If the next subtitle has multiple sentences, split it and only merge the first sentence.\nHelps keep lines short and readable."
+                    "tooltip": "If the next subtitle contains multiple sentences, split it and only merge the first sentence.\nHelps keep merged subtitles readable."
                 }),
                 "merge_allow_overlong": ("BOOLEAN", {
                     "default": True,
-                    "tooltip": "Allow merges even if they exceed max duration.\nBest for songs or slow speech; disable for strict timing."
+                    "tooltip": "Allow merges even if the final subtitle exceeds max duration.\nGood for songs and slow speech. Disable for strict timing limits."
+                }),
+                "normalize_cue_end_punctuation": ("BOOLEAN", {
+                    "default": False,
+                    "tooltip": "Optional subtitle-style cleanup.\nWhen enabled, removes trailing commas, periods, semicolons, and colons at the visual end of a subtitle cue.\nIf a cue is cleaned this way, the next cue start is uppercased to keep the subtitle flow visually coherent.\n\nQuestion marks, exclamation points, and ellipses are preserved.\nThis is a style transform, not grammatical truth, so it stays disabled by default."
                 }),
             }
         }
 
-    RETURN_TYPES = ("ASR_SRT_OPTIONS",)
-    RETURN_NAMES = ("asr_srt_options",)
+    RETURN_TYPES = ("SRT_OPTIONS",)
+    RETURN_NAMES = ("srt_options",)
     FUNCTION = "build_options"
-    CATEGORY = "TTS Audio Suite/✏️ ASR"
+    CATEGORY = "TTS Audio Suite/📺 Subtitles"
 
     def build_options(
         self,
         srt_preset: str,
         srt_mode: str,
+        tts_ready_mode: bool,
+        heuristic_language_profile: str,
         srt_max_chars_per_line: int,
         srt_max_lines: int,
         srt_max_duration: float,
@@ -202,10 +223,13 @@ class ASRSRTAdvancedOptionsNode(BaseChatterBoxNode):
         merge_incomplete_keywords: str,
         merge_incomplete_split_next: bool,
         merge_allow_overlong: bool,
+        normalize_cue_end_punctuation: bool,
     ):
         return ({
             "srt_preset": srt_preset,
             "srt_mode": srt_mode,
+            "tts_ready_mode": tts_ready_mode,
+            "heuristic_language_profile": heuristic_language_profile,
             "srt_max_chars_per_line": srt_max_chars_per_line,
             "srt_max_lines": srt_max_lines,
             "srt_max_duration": srt_max_duration,
@@ -236,13 +260,13 @@ class ASRSRTAdvancedOptionsNode(BaseChatterBoxNode):
             "merge_incomplete_keywords": merge_incomplete_keywords,
             "merge_incomplete_split_next": merge_incomplete_split_next,
             "merge_allow_overlong": merge_allow_overlong,
+            "normalize_cue_end_punctuation": normalize_cue_end_punctuation,
         },)
 
-
 NODE_CLASS_MAPPINGS = {
-    "ASRSRTAdvancedOptionsNode": ASRSRTAdvancedOptionsNode
+    "SRTAdvancedOptionsNode": SRTAdvancedOptionsNode,
 }
 
 NODE_DISPLAY_NAME_MAPPINGS = {
-    "ASRSRTAdvancedOptionsNode": "🔧 ASR SRT Advanced Options"
+    "SRTAdvancedOptionsNode": "🔧 SRT Advanced Options",
 }

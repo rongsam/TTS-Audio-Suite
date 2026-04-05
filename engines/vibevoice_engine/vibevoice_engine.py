@@ -34,7 +34,11 @@ if project_root not in sys.path:
 from utils.audio.processing import AudioProcessingUtils
 from utils.audio.cache import CacheKeyGenerator, get_audio_cache
 from utils.text.chunking import ImprovedChatterBoxChunker
-from .vibevoice_downloader import VibeVoiceDownloader, VIBEVOICE_MODELS
+from .vibevoice_downloader import (
+    VibeVoiceDownloader,
+    VIBEVOICE_MODELS,
+    is_kugelaudio_variant_name,
+)
 import folder_paths
 
 # Import unified model interface for ComfyUI integration
@@ -42,6 +46,14 @@ from utils.models.unified_model_interface import load_tts_model
 
 # Setup logging
 logger = logging.getLogger("VibeVoice")
+
+# The unified loader sometimes imports this module directly, bypassing
+# engines.vibevoice_engine.__init__ where these compatibility shims normally run.
+try:
+    from .transformers_compatibility import apply_all_compatibility_patches
+    apply_all_compatibility_patches()
+except Exception as e:
+    logger.warning(f"Could not apply VibeVoice transformers compatibility patches: {e}")
 
 # Check transformers version for dtype parameter compatibility
 _transformers_version = version.parse(transformers.__version__)
@@ -92,6 +104,43 @@ class VibeVoiceEngine:
         
         # Track if package is available
         self._package_available = None
+
+    def _align_quantized_aux_buffers(self) -> None:
+        """
+        Move small registered inner-model buffers to the main model device after
+        bitsandbytes/device_map loading.
+
+        VibeVoice exposes `speech_bias_factor`/`speech_scaling_factor` through
+        read-only wrapper properties on the inference class, so assigning to
+        `self.model.speech_bias_factor` fails even though the real buffers are
+        writable on `self.model.model`.
+        """
+        if self.model is None:
+            return
+
+        inner_model = getattr(self.model, "model", None)
+        if inner_model is None:
+            return
+
+        try:
+            main_device = next(self.model.parameters()).device
+        except StopIteration:
+            return
+
+        moved_buffers = []
+        for buffer_name in ("speech_bias_factor", "speech_scaling_factor"):
+            if buffer_name not in getattr(inner_model, "_buffers", {}):
+                continue
+
+            buffer = inner_model._buffers.get(buffer_name)
+            if not isinstance(buffer, torch.Tensor) or buffer.device == main_device:
+                continue
+
+            inner_model._buffers[buffer_name] = buffer.to(main_device)
+            moved_buffers.append(buffer_name)
+
+        if moved_buffers:
+            print(f"   🔧 Aligned VibeVoice buffers to {main_device}: {', '.join(moved_buffers)}")
 
     def to(self, device):
         """
@@ -362,17 +411,14 @@ class VibeVoiceEngine:
             processor_path = os.path.dirname(model_path) if is_standalone else model_path
             self.processor = self._load_processor_with_unified_tokenizer(processor_path, model_name)
             
-            # Move to device if needed (only if not using quantization which handles device_map)
-            if not quant_config and device == "cuda" and torch.cuda.is_available():
-                self.model = self.model.cuda()
+            # 🔧 Only move if NOT already placed by device_map
+            if not quant_config and device != "cpu" and not hasattr(self.model, 'hf_device_map'):
+                self.model = self.model.to(device)
                 
-            # Ensure all model parameters are on the same device (fix for speech_bias_factor issue)
-            if quant_config and hasattr(self.model, 'speech_bias_factor'):
+            # Align inner-model buffers after quantized/device_map loading.
+            if quant_config:
                 try:
-                    # Find the device of the main model components
-                    main_device = next(self.model.parameters()).device
-                    if hasattr(self.model.speech_bias_factor, 'to'):
-                        self.model.speech_bias_factor = self.model.speech_bias_factor.to(main_device)
+                    self._align_quantized_aux_buffers()
                 except Exception as device_fix_error:
                     print(f"⚠️ Device placement fix attempt failed (non-critical): {device_fix_error}")
             
@@ -894,9 +940,15 @@ class VibeVoiceEngine:
             # KugelAudio specific generation logic
             if getattr(self, 'is_kugelaudio', False):
                 return self._generate_kugelaudio(
-                    text, voice_samples, cfg_scale, seed, 
-                    use_sampling, temperature, top_p, 
-                    max_new_tokens
+                    text,
+                    voice_samples,
+                    cfg_scale,
+                    seed,
+                    use_sampling,
+                    temperature,
+                    top_p,
+                    inference_steps,
+                    max_new_tokens,
                 )
             
             # Prepare inputs using processor
@@ -1049,11 +1101,26 @@ class VibeVoiceEngine:
         # Generate with multi-speaker text
         return self.generate_speech(formatted_text, speaker_voices, **kwargs)
     
-    def _generate_kugelaudio(self, text, voice_samples, cfg_scale, seed, 
-                            use_sampling, temperature, top_p, max_new_tokens):
+    def _generate_kugelaudio(
+        self,
+        text,
+        voice_samples,
+        cfg_scale,
+        seed,
+        use_sampling,
+        temperature,
+        top_p,
+        inference_steps,
+        max_new_tokens,
+    ):
         """Handle generation specifically for KugelAudio"""
         try:
             device = next(self.model.parameters()).device
+
+            # Keep KugelAudio aligned with the VibeVoice UI instead of silently
+            # using the model config default (20 diffusion steps).
+            if hasattr(self.model, "set_ddpm_inference_steps"):
+                self.model.set_ddpm_inference_steps(num_steps=inference_steps)
             
             # Prepare voice_prompt from voice samples (raw audio)
             voice_prompt_audio = None
@@ -1081,6 +1148,7 @@ class VibeVoiceEngine:
                     gen_args.update({
                         "do_sample": True,
                         "temperature": temperature,
+                        "top_p": top_p,
                     })
                 else:
                      gen_args["do_sample"] = False
@@ -1114,7 +1182,7 @@ class VibeVoiceEngine:
 
     def _is_kugelaudio_model(self, model_name: str, model_path: str) -> bool:
         """Detect if current model is KugelAudio"""
-        if "kugelaudio" in model_name.lower():
+        if is_kugelaudio_variant_name(model_name):
             return True
         
         # Check config.json if directory exists
@@ -1137,22 +1205,93 @@ class VibeVoiceEngine:
             from .kugelaudio_impl import KugelAudioForConditionalGenerationInference, KugelAudioProcessor
              
             print(f"🔄 Loading KugelAudio model '{model_name}' on {device}...")
+
+            # Resolve device before building HF loading kwargs so quantization lands
+            # on the intended target instead of relying on a stale string value.
+            from utils.device import resolve_torch_device
+            device = resolve_torch_device(device)
             
             # Use bfloat16 if available (matching standard VibeVoice)
             dtype = torch.bfloat16 if torch.cuda.is_available() and torch.cuda.is_bf16_supported() else torch.float16
+
+            model_kwargs = {
+                "torch_dtype": dtype,
+                "low_cpu_mem_usage": True,
+                "device_map": device if device != "auto" else "auto",
+            }
+
+            final_attention_mode = attention_mode
+            if attention_mode == "auto":
+                if SAGE_ATTENTION_AVAILABLE and SAGE_ATTENTION_FUNCTION is not None:
+                    final_attention_mode = "sage"
+                    print("   🚀 Auto-selected SageAttention (GPU-optimized mixed-precision)")
+                else:
+                    try:
+                        import flash_attn  # noqa: F401
+                        final_attention_mode = "flash_attention_2"
+                        print("   ✨ Auto-selected flash_attention_2")
+                    except ImportError:
+                        final_attention_mode = "sdpa"
+                        print("   ⚡ Auto-selected sdpa (flash_attention_2 not available)")
+            elif attention_mode == "sage":
+                final_attention_mode = "sage"
+                print("   🎯 Using SageAttention")
+            else:
+                print(f"   🧠 Using {attention_mode} attention")
+
+            # SageAttention is applied by patching the model after load, so the HF
+            # loader itself should stay on SDPA.
+            attn_implementation_for_load = "sdpa" if final_attention_mode == "sage" else final_attention_mode
+
+            if attn_implementation_for_load != "auto":
+                model_kwargs["attn_implementation"] = attn_implementation_for_load
+
+            if quantize_llm_4bit:
+                if str(device) == "cpu":
+                    raise RuntimeError("KugelAudio 4-bit quantization requires CUDA; CPU quantization is not supported.")
+
+                from transformers import BitsAndBytesConfig
+
+                bnb_compute_dtype = dtype
+                if final_attention_mode == "sage":
+                    bnb_compute_dtype = torch.float32
+                print(f"   📊 Using {final_attention_mode} with 4-bit: using {bnb_compute_dtype} compute dtype")
+                model_kwargs["quantization_config"] = BitsAndBytesConfig(
+                    load_in_4bit=True,
+                    bnb_4bit_quant_type="nf4",
+                    bnb_4bit_use_double_quant=True,
+                    bnb_4bit_compute_dtype=bnb_compute_dtype,
+                )
+                model_kwargs["device_map"] = {"": 0} if str(device) == "cuda" else device
+                print("   🗜️ 4-bit LLM quantization enabled for KugelAudio")
             
             # Load model
-            # Note: KugelAudio implementation handles its own loading logic
             self.model = KugelAudioForConditionalGenerationInference.from_pretrained(
                 model_path,
-                torch_dtype=dtype,
-                low_cpu_mem_usage=True,
-                device_map=device if device != "auto" else "auto"
+                **model_kwargs,
             )
             
             # Load processor
             self.processor = KugelAudioProcessor.from_pretrained(model_path)
             
+            if final_attention_mode == "sage":
+                if SAGE_ATTENTION_AVAILABLE and set_sage_attention:
+                    print(f"   🎯 Applying SageAttention patch to model...")
+                    try:
+                        set_sage_attention(self.model)
+                        print(f"   ✅ SageAttention successfully applied")
+                    except Exception as sage_error:
+                        print(f"   ⚠️ Failed to apply SageAttention: {sage_error}")
+                        print("   📌 Falling back to SDPA")
+                        final_attention_mode = "sdpa"
+                else:
+                    print("   ⚠️ SageAttention not available, using SDPA")
+                    final_attention_mode = "sdpa"
+            else:
+                if restore_original_attention:
+                    print("   🔄 Restoring original attention (cleaning SageAttention patches)")
+                    restore_original_attention(self.model)
+
             self.model.eval()
             
             # Store configuration
@@ -1161,10 +1300,12 @@ class VibeVoiceEngine:
             self._original_device = device
             self.current_model_name = model_name
             self._current_config = (model_name, device, attention_mode, quantize_llm_4bit)
-            self._quantize_llm_4bit = False # KugelAudio specific quantization not implemented here yet
-            
+            self._quantize_llm_4bit = quantize_llm_4bit
+            self.attention_mode = final_attention_mode
+
             print(f"✅ KugelAudio model '{model_name}' loaded successfully")
-            
+            print(f"   Device: {device}, Attention: {final_attention_mode}")
+
         except Exception as e:
             logger.error(f"Failed to load KugelAudio model: {e}")
             raise RuntimeError(f"KugelAudio loading failed: {e}")

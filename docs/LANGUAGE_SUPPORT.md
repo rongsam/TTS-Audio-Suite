@@ -2,35 +2,35 @@
 
 ## Language Support by Engine
 
-| Language       | Code | F5-TTS | ChatterBox | ChatterBox 23L | VibeVoice | Higgs Audio 2 | IndexTTS-2 | CosyVoice3 | Qwen3-TTS | Step Audio EditX | RVC |
-|---|---|---|---|---|---|---|---|---|---|---|---|
-| 🇺🇸 **English** | EN   | ✅ | ✅ | ✅ | ✅ | ✅ | ✅ | ✅ | ✅ | ✅ | ✅ |
-| 🇨🇳 **Chinese** | ZH   | ❌ | ❌ | ✅ | ✅ | ✅ (Mandarin) | ✅ | ✅ + 18 dialects | ✅ | ✅ (Mandarin + Sichuanese, Cantonese) | ✅ |
-| 🇩🇪 **German**  | DE   | ✅ | ✅ (×3) | ✅ | ✅ (Kugel) | ✅ | ❌ | ❌ | ✅ | ❌ | ✅ |
-| 🇪🇸 **Spanish** | ES   | ✅ | ❌ | ✅ | ✅ (Kugel) | ✅ | ❌ | ❌ | ✅ | ❌ | ✅ |
-| 🇫🇷 **French**  | FR   | ✅ | ✅ | ✅ | ✅ (Kugel) | ❌ | ❌ | ❌ | ✅ | ❌ | ✅ |
-| 🇮🇹 **Italian** | IT   | ✅ | ✅ | ✅ | ✅ (Kugel) | ❌ | ❌ | ❌ | ✅ | ❌ | ✅ |
-| 🇯🇵 **Japanese** | JA   | ✅ | ✅ | ✅ | ✅ (Kugel) | ❌ | ✅ ? | ✅ | ✅ | ✅ | ✅ |
-| 🇰🇷 **Korean**  | KO   | ❌ | ✅ | ✅ | ✅ (Kugel) | ✅ | ❌ | ✅ | ✅ | ✅ | ✅ |
-| 🇷🇺 **Russian** | RU   | ❌ | ✅ | ✅ | ✅ (Kugel) | ❌ | ❌ | ❌ | ✅ | ❌ | ✅ |
-| 🇧🇷 **Portuguese** | PT   | ✅ (BR) | ❌ | ✅ | ✅ (Kugel) | ❌ | ❌ | ❌ | ✅ (EU/BR*) | ❌ | ✅ |
-| 🇵🇱 **Polish**  | PL   | ✅ | ❌ | ✅ | ✅ (Kugel) | ❌ | ❌ | ❌ | ❌ | ❌ | ✅ |
-| 🇮🇳 **Hindi**   | HI   | ✅ | ❌ | ✅ | ✅ | ❌ | ❌ | ❌ | ❌ | ❌ | ✅ |
-| 🇦🇪 **Arabic**  | AR   | ❌ | ❌ | ✅ | ✅ (Kugel) | ❌ | ❌ | ❌ | ❌ | ❌ | ✅ |
-| 🇹🇷 **Turkish** | TR   | ❌ | ❌ | ✅ | ✅ (Kugel) | ❌ | ❌ | ❌ | ❌ | ❌ | ✅ |
-| 🇹🇭 **Thai**    | TH   | ✅ | ❌ | ✅ | ✅ (Kugel) | ❌ | ❌ | ❌ | ❌ | ❌ | ✅ |
-| 🇳🇴 **Norwegian** | NO   | ❌ | ✅ | ✅ | ✅ (Kugel) | ❌ | ❌ | ❌ | ❌ | ❌ | ✅ |
-| 🇻🇳 **Vietnamese** | VI   | ❌ | ❌ | ✅ (Viterbox) | ✅ (Kugel) | ❌ | ❌ | ❌ | ❌ | ❌ | ✅ |
-| 🇦🇲 **Armenian** | HY   | ❌ | ✅ | ❌ | ✅ (Kugel) | ❌ | ❌ | ❌ | ❌ | ❌ | ✅ |
-| 🇬🇪 **Georgian** | KA   | ❌ | ✅ | ❌ | ✅ (Kugel) | ❌ | ❌ | ❌ | ❌ | ❌ | ✅ |
-| 🇩🇰 **Danish**  | DA   | ❌ | ❌ | ✅ | ✅ (Kugel) | ❌ | ❌ | ❌ | ❌ | ❌ | ✅ |
-| 🇫🇮 **Finnish** | FI   | ❌ | ❌ | ✅ | ✅ (Kugel) | ❌ | ❌ | ❌ | ❌ | ❌ | ✅ |
-| 🇬🇷 **Greek**   | EL   | ❌ | ❌ | ✅ | ✅ (Kugel) | ❌ | ❌ | ❌ | ❌ | ❌ | ✅ |
-| 🇮🇱 **Hebrew**  | HE   | ❌ | ❌ | ✅ | ✅ (Kugel) | ❌ | ❌ | ❌ | ❌ | ❌ | ✅ |
-| 🇲🇾 **Malay**   | MS   | ❌ | ❌ | ✅ | ✅ (Kugel) | ❌ | ❌ | ❌ | ❌ | ❌ | ✅ |
-| 🇳🇱 **Dutch**   | NL   | ❌ | ❌ | ✅ | ✅ (Kugel) | ❌ | ❌ | ❌ | ❌ | ❌ | ✅ |
-| 🇸🇪 **Swedish** | SV   | ❌ | ❌ | ✅ | ✅ (Kugel) | ❌ | ❌ | ❌ | ❌ | ❌ | ✅ |
-| 🇰🇪 **Swahili** | SW   | ❌ | ❌ | ✅ | ✅ (Kugel) | ❌ | ❌ | ❌ | ❌ | ❌ | ✅ |
+| Language       | Code | F5-TTS | ChatterBox | ChatterBox 23L | VibeVoice | Higgs Audio 2 | IndexTTS-2 | CosyVoice3 | Qwen3-TTS | Granite ASR | Step Audio EditX | Echo-TTS | RVC |
+|---|---|---|---|---|---|---|---|---|---|---|---|---|---|
+| 🇺🇸 **English** | EN   | ✅ | ✅ | ✅ | ✅ | ✅ | ✅ | ✅ | ✅ | ✅ | ✅ | ✅ | ✅ |
+| 🇨🇳 **Chinese** | ZH   | ❌ | ❌ | ✅ | ✅ | ✅ (Mandarin) | ✅ | ✅ + 18 dialects | ✅ | ❌ | ✅ (Mandarin + Sichuanese, Cantonese) | ❌ | ✅ |
+| 🇩🇪 **German**  | DE   | ✅ | ✅ (×3) | ✅ | ✅ (Kugel) | ✅ | ❌ | ❌ | ✅ | ✅ | ❌ | ❌ | ✅ |
+| 🇪🇸 **Spanish** | ES   | ✅ | ❌ | ✅ | ✅ (Kugel) | ✅ | ❌ | ❌ | ✅ | ✅ | ❌ | ❌ | ✅ |
+| 🇫🇷 **French**  | FR   | ✅ | ✅ | ✅ | ✅ (Kugel) | ❌ | ❌ | ❌ | ✅ | ✅ | ❌ | ❌ | ✅ |
+| 🇮🇹 **Italian** | IT   | ✅ | ✅ | ✅ | ✅ (Kugel) | ❌ | ❌ | ❌ | ✅ | ❌ | ❌ | ❌ | ✅ |
+| 🇯🇵 **Japanese** | JA   | ✅ | ✅ | ✅ | ✅ (Kugel) | ❌ | ✅ ? | ✅ | ✅ | ✅ | ✅ | ❌ | ✅ |
+| 🇰🇷 **Korean**  | KO   | ❌ | ✅ | ✅ | ✅ (Kugel) | ✅ | ❌ | ✅ | ✅ | ❌ | ✅ | ❌ | ✅ |
+| 🇷🇺 **Russian** | RU   | ❌ | ✅ | ✅ | ✅ (Kugel) | ❌ | ❌ | ❌ | ✅ | ❌ | ❌ | ❌ | ✅ |
+| 🇧🇷 **Portuguese** | PT   | ✅ (BR) | ❌ | ✅ | ✅ (Kugel) | ❌ | ❌ | ❌ | ✅ (EU/BR*) | ✅ | ❌ | ❌ | ✅ |
+| 🇵🇱 **Polish**  | PL   | ✅ | ❌ | ✅ | ✅ (Kugel) | ❌ | ❌ | ❌ | ❌ | ❌ | ❌ | ❌ | ✅ |
+| 🇮🇳 **Hindi**   | HI   | ✅ | ❌ | ✅ | ✅ | ❌ | ❌ | ❌ | ❌ | ❌ | ❌ | ❌ | ✅ |
+| 🇪🇬 **Arabic**  | AR   | ❌ | ❌ | ✅ (Egyptian) | ✅ (Kugel) | ❌ | ❌ | ❌ | ❌ | ❌ | ❌ | ❌ | ✅ |
+| 🇹🇷 **Turkish** | TR   | ❌ | ❌ | ✅ | ✅ (Kugel) | ❌ | ❌ | ❌ | ❌ | ❌ | ❌ | ❌ | ✅ |
+| 🇹🇭 **Thai**    | TH   | ✅ | ❌ | ✅ | ✅ (Kugel) | ❌ | ❌ | ❌ | ❌ | ❌ | ❌ | ❌ | ✅ |
+| 🇳🇴 **Norwegian** | NO   | ❌ | ✅ | ✅ | ✅ (Kugel) | ❌ | ❌ | ❌ | ❌ | ❌ | ❌ | ❌ | ✅ |
+| 🇻🇳 **Vietnamese** | VI   | ❌ | ❌ | ✅ (Viterbox) | ✅ (Kugel) | ❌ | ❌ | ❌ | ❌ | ❌ | ❌ | ❌ | ✅ |
+| 🇦🇲 **Armenian** | HY   | ❌ | ✅ | ❌ | ✅ (Kugel) | ❌ | ❌ | ❌ | ❌ | ❌ | ❌ | ❌ | ✅ |
+| 🇬🇪 **Georgian** | KA   | ❌ | ✅ | ❌ | ✅ (Kugel) | ❌ | ❌ | ❌ | ❌ | ❌ | ❌ | ❌ | ✅ |
+| 🇩🇰 **Danish**  | DA   | ❌ | ❌ | ✅ | ✅ (Kugel) | ❌ | ❌ | ❌ | ❌ | ❌ | ❌ | ❌ | ✅ |
+| 🇫🇮 **Finnish** | FI   | ❌ | ❌ | ✅ | ✅ (Kugel) | ❌ | ❌ | ❌ | ❌ | ❌ | ❌ | ❌ | ✅ |
+| 🇬🇷 **Greek**   | EL   | ❌ | ❌ | ✅ | ✅ (Kugel) | ❌ | ❌ | ❌ | ❌ | ❌ | ❌ | ❌ | ✅ |
+| 🇮🇱 **Hebrew**  | HE   | ❌ | ❌ | ✅ | ✅ (Kugel) | ❌ | ❌ | ❌ | ❌ | ❌ | ❌ | ❌ | ✅ |
+| 🇲🇾 **Malay**   | MS   | ❌ | ❌ | ✅ | ✅ (Kugel) | ❌ | ❌ | ❌ | ❌ | ❌ | ❌ | ❌ | ✅ |
+| 🇳🇱 **Dutch**   | NL   | ❌ | ❌ | ✅ | ✅ (Kugel) | ❌ | ❌ | ❌ | ❌ | ❌ | ❌ | ❌ | ✅ |
+| 🇸🇪 **Swedish** | SV   | ❌ | ❌ | ✅ | ✅ (Kugel) | ❌ | ❌ | ❌ | ❌ | ❌ | ❌ | ❌ | ✅ |
+| 🇰🇪 **Swahili** | SW   | ❌ | ❌ | ✅ | ✅ (Kugel) | ❌ | ❌ | ❌ | ❌ | ❌ | ❌ | ❌ | ✅ |
 
 **Notes:**
 
