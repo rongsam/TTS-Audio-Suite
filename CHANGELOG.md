@@ -5,6 +5,205 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [4.25.18] - 2026-04-17
+
+### Added
+
+- Add safer loading fallback for OGG and other compressed voice reference files
+
+### Fixed
+
+- Fix Echo-TTS voice references from Character Voices and OGG files
+- Fix Echo-TTS using Character Voices and dropdown voices when only the file path is available
+- Improve compatibility when direct audio decoding is unavailable in some Windows environments
+## [4.25.17] - 2026-04-14
+
+### Changed
+
+- Improve IndexTTS-2 startup logs by removing stale Python 3.12 VRAM warnings and extra QwenEmotion debug output
+- Update IndexTTS-2 QwenEmotion loading to avoid deprecated dtype warnings
+
+### Fixed
+
+- Fix IndexTTS-2 silent failures and noisy startup warnings
+- Fix IndexTTS-2 accidentally enabling torch.compile from legacy workflow values
+- Fix IndexTTS-2 runs returning silent audio instead of a real error when generation fails
+- Improve IndexTTS-2 error message when torch.compile is enabled without Triton on CUDA
+## [4.25.16] - 2026-04-14
+
+### Added
+
+- Restore the official Higgs Audio 2 download to a known-good v2 snapshot
+
+### Changed
+
+- Improve Higgs Audio loading behavior by reducing repeated managed download log noise
+
+### Fixed
+
+- Fix Higgs Audio 2 download compatibility with current transformers support
+- Fix newer incompatible Higgs metadata already downloaded from Hugging Face
+## [4.25.15] - 2026-04-13
+
+### Changed
+
+- Improve Higgs Audio support for newer upstream model releases
+
+### Fixed
+
+- Fix Higgs Audio loading with recent upstream tokenizer updates
+- Fix Higgs Audio tokenizer loading failure after the latest Hugging Face tokenizer metadata change
+- Keep compatibility with older Higgs downloads and existing tokenizer layouts
+## [4.25.14] - 2026-04-12
+
+### Changed
+
+- Improve RVC training behavior when FAISS is present but unusable
+
+### Fixed
+
+- Fix RVC training FAISS package repair on Linux
+- Fix RVC index building failing when Python imports a broken stub faiss package with no real APIs
+- Reinstall faiss-cpu more aggressively when the environment contains broken FAISS leftovers
+## [4.25.13] - 2026-04-12
+
+### Added
+
+- Resume should no longer fall back to a fresh run just because checkpoint loading is blocked by weights_only defaults
+
+### Changed
+
+- Improve reliability of resumed RVC training runs
+
+### Fixed
+
+- Fix RVC training resume checkpoint loading
+- Fix RVC resume failing on newer PyTorch versions when loading saved training checkpoints
+## [4.25.12] - 2026-04-12
+
+### Added
+
+- Add clearer Higgs config detection logs for troubleshooting
+
+### Fixed
+
+- Fix Higgs Audio compatibility with recent upstream model updates
+- Fix Higgs Audio SRT language-tag processing crash
+- Fix Higgs Audio model loading failure with the latest Hugging Face release
+## [4.25.11] - 2026-04-12
+
+### Added
+
+- Resume now reuses the latest compatible checkpointed RVC job for the same output name, dataset, and sample rate
+
+### Changed
+
+- Improve resume messaging when no compatible saved checkpoints exist
+
+### Fixed
+
+- Fix RVC training resume after config changes
+- Fix RVC resume failing just because training settings changed between runs
+## [4.25.10] - 2026-04-12
+
+### Added
+
+- Show clearer install warnings when faiss is present but unusable
+
+### Changed
+
+- Improve RVC training FAISS setup on Linux
+- Improve RVC training setup when Linux CUDA faiss packages install incorrectly
+
+### Fixed
+
+- Fall back to faiss-cpu automatically if the GPU faiss package is broken
+## [4.25.9] - 2026-04-11
+
+### Changed
+
+- Improve RVC model training dataset prep reliability
+
+### Fixed
+
+- Fix RVC model training failing silently when RMVPE pitch extraction files are missing
+- Prevent RVC model training from continuing with a broken voiced dataset
+- Improve RVC model training index build diagnostics when FAISS imports still fail
+## [4.25.8] - 2026-04-11
+
+### Added
+
+- Clarify FAISS installation guidance for RVC model training
+
+### Changed
+
+- Improve RVC model training behavior when FAISS index dependencies are unavailable
+
+### Fixed
+
+- Improve RVC model training dependency compatibility
+- Fix RVC model training failing when only the system ffmpeg CLI is installed
+- Avoid RVC installer dependency conflicts when installing faiss-cpu
+## [4.25.7] - 2026-04-11
+
+### Added
+
+- Restore the example RVC model training workflow in fresh setups
+
+### Fixed
+
+- Fix RVC training startup failures
+- Fix missing bundled RVC training runtime files in clean installs
+- Improve RVC training multiprocessing compatibility on Linux and ROCm systems
+## [4.25.6] - 2026-04-10
+
+### Fixed
+
+- Fix ChatterBox model loading failure on some Python 3.13 setups
+- Fix ChatterBox crashing before generation when optional watermark dependency imports a fragile librosa path
+- Improve compatibility by loading watermark support only when it is actually used
+## [4.25.5] - 2026-04-08
+
+### Added
+
+- Add find and replace tools directly inside the editor
+- Add replace all, match options, and keyboard shortcuts for faster text editing
+- Add collapsible left panel control while keeping sidebar resizing available
+
+### Changed
+
+- Improve Multiline TTS Tag Editor editing workflow
+- Improve left panel toggle behavior and visual polish during resize
+## [4.25.4] - 2026-04-08
+
+### Added
+
+- Keep inline edit tag and voice restoration settings working as before
+- Reduce noisy console spam from deprecated settings API usage
+
+### Fixed
+
+- Fix TTS Audio Suite settings deprecation warnings
+- Fix ComfyUI settings warnings shown in the browser console
+## [4.25.3] - 2026-04-08
+
+### Added
+
+- Redesign SRT Advanced Options interface
+- Clarify subtitle mode and language-profile behavior directly in the UI
+
+### Changed
+
+- Add a cleaner compact layout for subtitle policy controls
+- Improve preset editing with visible modified states and smarter locking
+## [4.25.2] - 2026-04-06
+
+### Fixed
+
+- Fix ONNX Runtime installer preserving GPU acceleration
+- Fix TTS Audio Suite reinstalling CPU ONNX Runtime over existing GPU setups
+- Improve Python 3.13 OpenSeeFace dependency handling without replacing working ONNX installs
+- Better compatibility with shared ComfyUI environments when other nodes use onnxruntime-gpu
 ## [4.25.1] - 2026-04-05
 
 ### Added

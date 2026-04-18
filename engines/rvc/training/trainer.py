@@ -13,7 +13,7 @@ import sys
 from glob import glob
 from datetime import datetime
 from pathlib import Path
-from typing import Any, Dict, Tuple
+from typing import Any, Dict, Optional, Tuple
 
 import folder_paths
 
@@ -222,7 +222,13 @@ def _prepare_output_paths(
     model_path = os.path.join(models_root, f"{safe_name}_{sample_rate}.pth")
 
     if resume:
-        return job_dir, model_path, safe_name
+        existing_job_dir = _find_resume_job_dir(
+            training_root,
+            safe_name,
+            dataset_info,
+            sample_rate,
+        )
+        return existing_job_dir or job_dir, model_path, safe_name
 
     if overwrite:
         if os.path.isdir(job_dir):
@@ -257,6 +263,79 @@ def _find_resume_checkpoints(job_dir: str) -> Tuple[str, str]:
     generator_checkpoint = generator_candidates[-1] if generator_candidates else ""
     discriminator_checkpoint = discriminator_candidates[-1] if discriminator_candidates else ""
     return generator_checkpoint, discriminator_checkpoint
+
+
+def _normalize_resume_identity_path(value: Any) -> str:
+    raw = str(value or "").strip()
+    if not raw:
+        return ""
+    try:
+        return os.path.normcase(os.path.abspath(raw))
+    except Exception:
+        return os.path.normcase(raw)
+
+
+def _read_resolved_training_config(job_dir: str) -> Dict[str, Any]:
+    config_path = os.path.join(job_dir, "resolved_training_config.json")
+    if not os.path.isfile(config_path):
+        return {}
+    try:
+        with open(config_path, "r", encoding="utf-8") as handle:
+            payload = json.load(handle)
+    except Exception:
+        return {}
+    return payload if isinstance(payload, dict) else {}
+
+
+def _find_resume_job_dir(
+    training_root: str,
+    safe_name: str,
+    dataset_info: Dict[str, Any],
+    sample_rate: str,
+) -> Optional[str]:
+    if not os.path.isdir(training_root):
+        return None
+
+    prefix = f"{safe_name}_"
+    target_dataset_dir = _normalize_resume_identity_path(dataset_info.get("dataset_dir", ""))
+    target_if_f0 = bool(dataset_info.get("if_f0", True))
+    best_job_dir = None
+    best_checkpoint_mtime = -1.0
+
+    for entry in os.listdir(training_root):
+        if not entry.startswith(prefix):
+            continue
+
+        job_dir = os.path.join(training_root, entry)
+        if not os.path.isdir(job_dir):
+            continue
+
+        config = _read_resolved_training_config(job_dir)
+        dataset_config = config.get("dataset") or {}
+        config_dataset_dir = _normalize_resume_identity_path(dataset_config.get("dataset_dir", ""))
+        config_sample_rate = str(dataset_config.get("sample_rate", "") or "")
+        config_if_f0 = bool(dataset_config.get("if_f0", target_if_f0))
+
+        if config_dataset_dir != target_dataset_dir:
+            continue
+        if config_sample_rate and config_sample_rate != sample_rate:
+            continue
+        if config_if_f0 != target_if_f0:
+            continue
+
+        generator_checkpoint, discriminator_checkpoint = _find_resume_checkpoints(job_dir)
+        if not generator_checkpoint or not discriminator_checkpoint:
+            continue
+
+        checkpoint_mtime = max(
+            os.path.getmtime(generator_checkpoint),
+            os.path.getmtime(discriminator_checkpoint),
+        )
+        if checkpoint_mtime > best_checkpoint_mtime:
+            best_checkpoint_mtime = checkpoint_mtime
+            best_job_dir = job_dir
+
+    return best_job_dir
 
 
 def _resolve_max_checkpoints(training_config: Dict[str, Any]) -> int:
@@ -351,6 +430,8 @@ def run_rvc_training_job(
     fp16_run = bool(training_config.get("fp16_run", True)) and gpu_ids != ""
     resolved_pretrain_g, resolved_pretrain_d = _resolve_training_pretrained_paths(dataset_info, training_config)
     initial_generator_path = continue_from_model_path or resolved_pretrain_g
+    index_requested = bool(training_config.get("train_index", True))
+    index_build_warning = ""
 
     hparams = train_utils.HParams(**config_data)
     hparams.experiment_dir = dataset_info["dataset_dir"]
@@ -437,15 +518,16 @@ def run_rvc_training_job(
             generator_checkpoint, discriminator_checkpoint = _find_resume_checkpoints(job_dir)
             if not generator_checkpoint or not discriminator_checkpoint:
                 raise RuntimeError(
-                    "Resume requested, but no saved RVC training checkpoints were found in "
-                    f"'{job_dir}'. Resume needs saved numbered G_*.pth and D_*.pth checkpoints. "
+                    "Resume requested, but no saved RVC training checkpoints were found for a compatible "
+                    f"RVC job (name='{resolved_name}', sample_rate='{sample_rate}', dataset='{dataset_info['dataset_dir']}'). "
+                    "Resume needs saved numbered G_*.pth and D_*.pth checkpoints. "
                     "Set 'save_every_epoch' above 0 for resumable runs, or disable resume."
                 )
 
         update_training_job(
             node_id,
             status="running",
-            phase="building_index" if bool(training_config.get("train_index", True)) else "starting",
+            phase="building_index" if index_requested else "starting",
             model_path=model_path,
             config_path=resolved_config_path,
             pretrained_generator=initial_generator_path,
@@ -454,20 +536,30 @@ def run_rvc_training_job(
         )
 
         index_path = None
-        if bool(training_config.get("train_index", True)):
-            index_path = build_faiss_index(
-                dataset_dir=dataset_info["dataset_dir"],
-                sample_rate=sample_rate,
-                model_name=resolved_name,
-                index_dir=os.path.join(folder_paths.models_dir, "TTS", "RVC", ".index"),
-                overwrite=overwrite,
-            )
+        if index_requested:
+            try:
+                index_path = build_faiss_index(
+                    dataset_dir=dataset_info["dataset_dir"],
+                    sample_rate=sample_rate,
+                    model_name=resolved_name,
+                    index_dir=os.path.join(folder_paths.models_dir, "TTS", "RVC", ".index"),
+                    overwrite=overwrite,
+                )
+            except RuntimeError as exc:
+                message = str(exc).lower()
+                if "faiss" not in message and "scikit-learn" not in message:
+                    raise
+                index_build_warning = str(exc)
+                print(f"⚠️ RVC training: {exc} Continuing without index build.")
 
         update_training_job(
             node_id,
             status="running",
             phase="training",
             index_path=index_path,
+            index_requested=index_requested,
+            index_built=bool(index_path),
+            warning=index_build_warning or None,
         )
 
         if resume or not os.path.isfile(model_path):
@@ -490,6 +582,13 @@ def run_rvc_training_job(
             "type": "rvc_model",
         }
 
+        summary = (
+            f"RVC training complete: {resolved_name} | sample rate {sample_rate} | "
+            f"model {model_path}"
+        )
+        if index_requested and not index_path:
+            summary += " | index not built"
+
         artifacts = {
             "type": "training_artifacts",
             "engine_type": "rvc",
@@ -497,14 +596,14 @@ def run_rvc_training_job(
             "artifact_type": "voice_model",
             "model_path": model_path,
             "index_path": index_path,
+            "index_requested": index_requested,
+            "index_built": bool(index_path),
+            "index_warning": index_build_warning or None,
             "log_dir": job_dir,
             "config_path": resolved_config_path,
             "model_name": resolved_name,
             "rvc_model": rvc_model,
-            "summary": (
-                f"RVC training complete: {resolved_name} | sample rate {sample_rate} | "
-                f"model {model_path}"
-            ),
+            "summary": summary,
         }
         finalize_training_job(
             node_id,
@@ -513,6 +612,9 @@ def run_rvc_training_job(
             artifacts=artifacts,
             model_path=model_path,
             index_path=index_path,
+            index_requested=index_requested,
+            index_built=bool(index_path),
+            warning=index_build_warning or None,
         )
         _write_terminal_progress(
             progress_file,
@@ -521,6 +623,9 @@ def run_rvc_training_job(
             artifacts=artifacts,
             model_path=model_path,
             index_path=index_path,
+            index_requested=index_requested,
+            index_built=bool(index_path),
+            warning=index_build_warning or None,
         )
         return artifacts
     except InterruptedError as error:

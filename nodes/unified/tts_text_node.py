@@ -750,6 +750,7 @@ Back to the main narrator voice for the conclusion.""",
         Returns:
             Tuple of (audio_tensor, generation_info)
         """
+        engine_type = None
         try:
             # Apply Python 3.12 CUDNN compatibility fix before TTS generation
             from utils.comfyui_compatibility import ensure_python312_cudnn_fix
@@ -1177,7 +1178,13 @@ Back to the main narrator voice for the conclusion.""",
                     engine_instance.processor = EchoTTSProcessor(engine_instance.adapter, config)
                     engine_instance.processor.update_config(config)
 
-                voice_mapping = {'narrator': {'audio': audio_tensor, 'reference_text': reference_text or ''}}
+                voice_mapping = {
+                    'narrator': {
+                        'audio': audio_tensor,
+                        'audio_path': audio_path,
+                        'reference_text': reference_text or '',
+                    }
+                }
                 segment_records = engine_instance.processor.process_text(
                     text=text,
                     voice_mapping=voice_mapping,
@@ -1487,6 +1494,8 @@ Back to the main narrator voice for the conclusion.""",
         except Exception as e:
             # Bubble up pause tag + speaker KV incompatibility to trigger ComfyUI modal
             if "Pause tags are not compatible with force_speaker_kv" in str(e):
+                raise
+            if engine_type == "index_tts":
                 raise
             error_msg = f"❌ TTS Text generation failed: {e}"
             print(error_msg)

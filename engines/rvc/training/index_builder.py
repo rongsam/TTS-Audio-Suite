@@ -22,8 +22,21 @@ def build_faiss_index(
         from sklearn.cluster import MiniBatchKMeans
     except ImportError as exc:
         raise RuntimeError(
-            "RVC index building requires faiss and scikit-learn"
+            "RVC index building requires a Python faiss package and scikit-learn. "
+            "Install 'faiss-cpu' (or another compatible faiss build), not 'faiss'. "
+            f"Underlying import error: {exc}"
         ) from exc
+
+    missing_faiss_api = [name for name in ("index_factory", "extract_index_ivf", "write_index") if not hasattr(faiss, name)]
+    if missing_faiss_api:
+        module_file = getattr(faiss, "__file__", None)
+        loader_name = type(getattr(faiss, "__loader__", None)).__name__ if getattr(faiss, "__loader__", None) else None
+        raise RuntimeError(
+            "RVC index building found a broken Python faiss package. "
+            f"Missing required API: {', '.join(missing_faiss_api)}. "
+            f"Imported module file: {module_file!r}, loader: {loader_name!r}. "
+            "This usually means a stale namespace/stub package. Uninstall faiss/faiss-cpu/faiss-gpu, remove any stray site-packages/faiss directory, and reinstall 'faiss-cpu'."
+        )
 
     os.makedirs(index_dir, exist_ok=True)
 
